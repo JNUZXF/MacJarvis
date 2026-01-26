@@ -26,3 +26,8 @@ export interface ChatState {
   isLoading: boolean;
   input: string;
 }
+
+export interface UserPathsResponse {
+  user_id: string;
+  paths: string[];
+}

@@ -333,10 +333,15 @@ OPENAI_MAX_TOOL_TURNS=8      # 最大工具调用轮数
 - `~/Documents`
 - `~/Downloads`
 
-如需修改允许的路径，编辑 `src/agent/tools/validators.py` 中的 `ALLOWED_ROOTS` 列表：
+如需修改允许的路径，推荐通过环境变量注入额外白名单，避免修改代码：
+
+- `AGENT_ALLOWED_ROOTS`：使用系统路径分隔符（macOS/Linux 为 `:`）分隔多个路径
+- 示例：`AGENT_ALLOWED_ROOTS=/Users/your_username:/Users/your_username/Desktop`
+
+若必须修改默认白名单，可编辑 `src/agent/tools/validators.py` 中的 `BASE_ALLOWED_ROOTS` 列表：
 
 ```python
-ALLOWED_ROOTS = [
+BASE_ALLOWED_ROOTS = [
     Path.home(),
     Path.home() / "Desktop",
     Path.home() / "Documents",
@@ -344,6 +349,24 @@ ALLOWED_ROOTS = [
     # 添加更多允许的路径
 ]
 ```
+
+路径规范化支持常见变量展开，例如 `~`、`$HOME`/`$USER`、以及 `$(whoami)`，避免因变量未展开导致路径被拒绝。
+
+#### 用户级路径白名单（前端配置）
+
+- 前端支持用户配置个人路径白名单，后端会持久化到 `backend_data/user_paths.json`
+- 路径校验会合并“默认白名单 + 环境变量白名单 + 用户白名单”
+- 用户白名单只接受已存在的目录路径，且会拒绝根目录 `/`
+
+API：
+- `GET /api/user/paths?user_id=...` 获取用户白名单
+- `POST /api/user/paths` 保存用户白名单（`{"user_id": "...", "paths": ["..."]}`）
+
+**Docker 部署注意事项**：
+- Docker 容器内已挂载用户主目录（`${HOME}:/host_home`），容器内 `HOME=/host_home`
+- 智能体创建的 `~/Documents`、`~/Desktop` 等路径会映射到宿主机的用户目录
+- 如果文件找不到，检查容器内路径：`docker exec macjarvis-backend ls -la /host_home/Documents`
+- 确保容器有权限访问挂载的目录
 
 ---
 

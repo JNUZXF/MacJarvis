@@ -18,6 +18,9 @@ function App() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [model, setModel] = useState(modelOptions[0].value);
+  const [userPaths, setUserPaths] = useState<string[]>([]);
+  const [pathInput, setPathInput] = useState('');
+  const [pathError, setPathError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const apiUrl = import.meta.env.VITE_API_URL || '';
 
@@ -68,11 +71,61 @@ function App() {
     };
   };
 
+  const fetchUserPaths = async (currentUserId: string) => {
+    if (!currentUserId) return;
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/user/paths?user_id=${encodeURIComponent(currentUserId)}`
+      );
+      if (!response.ok) {
+        throw new Error(`Load user paths failed: ${response.status}`);
+      }
+      const data = await response.json();
+      setUserPaths(Array.isArray(data.paths) ? data.paths : []);
+      setPathError('');
+    } catch (err) {
+      console.error('Failed to load user paths:', err);
+      setPathError('加载路径配置失败');
+    }
+  };
+
+  const saveUserPaths = async (paths: string[]) => {
+    const currentUserId = userId || localStorage.getItem('mac_agent_user_id');
+    if (!currentUserId) return;
+    try {
+      const response = await fetch(`${apiUrl}/api/user/paths`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: currentUserId,
+          paths,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Save user paths failed: ${response.status}`);
+      }
+      const data = await response.json();
+      setUserPaths(Array.isArray(data.paths) ? data.paths : []);
+      setPathError('');
+    } catch (err) {
+      console.error('Failed to save user paths:', err);
+      setPathError('保存路径配置失败');
+    }
+  };
+
   useEffect(() => {
     initSessionState().catch((err) => {
       console.error('Failed to init session:', err);
     });
   }, []);
+
+  useEffect(() => {
+    if (userId) {
+      fetchUserPaths(userId);
+    }
+  }, [userId]);
 
   useEffect(() => {
     if (activeSessionId) {
@@ -279,6 +332,21 @@ function App() {
     }
   };
 
+  const handleAddPath = async () => {
+    const nextPath = pathInput.trim();
+    if (!nextPath) return;
+    await saveUserPaths([...userPaths, nextPath]);
+    setPathInput('');
+  };
+
+  const handleRemovePath = async (path: string) => {
+    await saveUserPaths(userPaths.filter((item) => item !== path));
+  };
+
+  const handleQuickAdd = async (path: string) => {
+    await saveUserPaths([...userPaths, path]);
+  };
+
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
       <div className="hidden md:flex flex-col w-64 bg-gray-900 text-white p-4">
@@ -290,6 +358,65 @@ function App() {
         <div className="mb-6 px-2">
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">User</div>
           <div className="text-xs text-gray-300 break-all">{userId || '生成中...'}</div>
+        </div>
+
+        <div className="mb-6 px-2">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+            路径白名单
+          </div>
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1">
+              {['~', '~/Desktop', '~/Documents', '~/Downloads'].map((path) => (
+                <button
+                  key={path}
+                  type="button"
+                  onClick={() => handleQuickAdd(path)}
+                  className="text-[11px] px-2 py-1 rounded bg-gray-800 text-gray-200 hover:bg-gray-700"
+                >
+                  {path}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={pathInput}
+                onChange={(e) => setPathInput(e.target.value)}
+                placeholder="输入绝对路径或~"
+                className="flex-1 px-2 py-1.5 text-xs rounded border border-gray-700 bg-gray-800 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-400 outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleAddPath}
+                className="px-2 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                添加
+              </button>
+            </div>
+            {pathError ? (
+              <div className="text-xs text-red-400">{pathError}</div>
+            ) : null}
+            <ul className="space-y-1 text-xs text-gray-300 max-h-32 overflow-y-auto">
+              {userPaths.length === 0 ? (
+                <li className="text-gray-500">未配置</li>
+              ) : (
+                userPaths.map((path) => (
+                  <li key={path} className="flex items-center justify-between gap-2">
+                    <span className="truncate" title={path}>
+                      {path}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePath(path)}
+                      className="text-red-300 hover:text-red-200"
+                    >
+                      移除
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          </div>
         </div>
         
         <div className="flex-1 overflow-y-auto">

@@ -1,3 +1,5 @@
+import contextvars
+import getpass
 import os
 from pathlib import Path
 
@@ -8,6 +10,11 @@ BASE_ALLOWED_ROOTS = [
     Path.home() / "Documents",
     Path.home() / "Downloads",
 ]
+
+_RUNTIME_ALLOWED_ROOTS: contextvars.ContextVar[list[Path]] = contextvars.ContextVar(
+    "runtime_allowed_roots",
+    default=[],
+)
 
 
 def get_allowed_roots() -> list[Path]:
@@ -27,6 +34,9 @@ def get_allowed_roots() -> list[Path]:
                 roots.append(Path(raw).expanduser().resolve())
             except OSError:
                 continue
+    runtime_roots = _RUNTIME_ALLOWED_ROOTS.get()
+    for root in runtime_roots:
+        roots.append(root)
     # 去重
     seen = set()
     unique_roots = []
@@ -39,8 +49,19 @@ def get_allowed_roots() -> list[Path]:
 
 
 def normalize_path(path_str: str) -> Path:
-    path = Path(path_str).expanduser().resolve()
+    expanded = os.path.expandvars(path_str)
+    if "$(whoami)" in expanded:
+        expanded = expanded.replace("$(whoami)", getpass.getuser())
+    path = Path(expanded).expanduser().resolve()
     return path
+
+
+def set_runtime_allowed_roots(paths: list[Path]) -> contextvars.Token:
+    return _RUNTIME_ALLOWED_ROOTS.set(paths)
+
+
+def reset_runtime_allowed_roots(token: contextvars.Token) -> None:
+    _RUNTIME_ALLOWED_ROOTS.reset(token)
 
 
 def is_path_allowed(path: Path) -> bool:

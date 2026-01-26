@@ -5,6 +5,8 @@ import sys
 import time
 import uuid
 from dataclasses import replace
+from pathlib import Path
+import threading
 from typing import Iterator
 
 from fastapi import FastAPI, Request, status, HTTPException
@@ -22,6 +24,7 @@ from agent.core.client import OpenAIClient
 from agent.core.config import ALLOWED_MODELS, is_model_allowed, load_openai_config, with_model
 from agent.tools.mac_tools import build_default_tools
 from agent.tools.registry import ToolRegistry
+from agent.tools.validators import normalize_path, reset_runtime_allowed_roots, set_runtime_allowed_roots
 
 app = FastAPI()
 
@@ -78,6 +81,87 @@ def create_session(title: str) -> dict[str, object]:
 
 
 USER_STORE: dict[str, dict[str, object]] = {}
+USER_PATHS_LOCK = threading.Lock()
+DATA_DIR = Path(__file__).resolve().parents[2] / "backend_data"
+USER_PATHS_FILE = DATA_DIR / "user_paths.json"
+
+
+def build_system_prompt(user_paths: list[str]) -> str:
+    if not user_paths:
+        paths_text = "未配置用户白名单。仅允许默认安全路径。"
+    else:
+        lines = "\n".join(f"- {path}" for path in user_paths)
+        paths_text = f"用户已配置可访问路径：\n{lines}"
+    return f"{BASE_SYSTEM_PROMPT}\n\n{paths_text}".strip()
+
+
+def load_user_paths_store() -> dict[str, object]:
+    if not USER_PATHS_FILE.exists():
+        return {"version": 1, "users": {}}
+    try:
+        with USER_PATHS_FILE.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or "users" not in data:
+            return {"version": 1, "users": {}}
+        if not isinstance(data.get("users"), dict):
+            return {"version": 1, "users": {}}
+        return data
+    except (OSError, json.JSONDecodeError):
+        return {"version": 1, "users": {}}
+
+
+def save_user_paths_store(data: dict[str, object]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_file = USER_PATHS_FILE.with_suffix(".json.tmp")
+    with tmp_file.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    tmp_file.replace(USER_PATHS_FILE)
+
+
+def normalize_user_paths(raw_paths: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_paths:
+        if not raw or not str(raw).strip():
+            continue
+        try:
+            path = normalize_path(str(raw).strip())
+        except OSError:
+            continue
+        if path.as_posix() == "/":
+            continue
+        if not path.exists() or not path.is_dir():
+            continue
+        path_str = str(path)
+        if path_str in seen:
+            continue
+        normalized.append(path_str)
+        seen.add(path_str)
+    return normalized
+
+
+def get_user_paths(user_id: str) -> list[str]:
+    with USER_PATHS_LOCK:
+        store = load_user_paths_store()
+        users = store.get("users", {})
+        if isinstance(users, dict):
+            paths = users.get(user_id, [])
+            if isinstance(paths, list):
+                return [str(item) for item in paths]
+    return []
+
+
+def set_user_paths(user_id: str, paths: list[str]) -> list[str]:
+    normalized = normalize_user_paths(paths)
+    with USER_PATHS_LOCK:
+        store = load_user_paths_store()
+        users = store.get("users")
+        if not isinstance(users, dict):
+            users = {}
+            store["users"] = users
+        users[user_id] = normalized
+        save_user_paths_store(store)
+    return normalized
 
 
 def get_or_create_user(user_id: str | None) -> tuple[str, dict[str, object]]:
@@ -180,7 +264,7 @@ try:
     config = load_openai_config()
     registry = ToolRegistry(build_default_tools())
     
-    SYSTEM_PROMPT = """你是一个专业的 macOS 智能助手，可以帮助用户管理系统、排查问题、执行自动化任务。
+    BASE_SYSTEM_PROMPT = """你是一个专业的 macOS 智能助手，可以帮助用户管理系统、排查问题、执行自动化任务。
 你可以使用提供的工具来获取信息或执行操作。
 在执行具有潜在风险的操作（如删除文件、修改系统设置）前，请务必仔细确认路径和参数。
 请用中文回复用户。
@@ -190,7 +274,7 @@ except Exception as e:
     print(f"Warning: Agent initialization failed: {e}")
     config = None
     registry = None
-    SYSTEM_PROMPT = ""
+    BASE_SYSTEM_PROMPT = ""
 
 class ChatRequest(BaseModel):
     message: str
@@ -207,6 +291,11 @@ class SessionInitRequest(BaseModel):
 class SessionCreateRequest(BaseModel):
     user_id: str
     title: str | None = None
+
+
+class UserPathsRequest(BaseModel):
+    user_id: str
+    paths: list[str]
 
 @app.get("/health")
 async def health_check():
@@ -255,6 +344,20 @@ async def get_session(session_id: str, user_id: str):
     return sessions[session_id]
 
 
+@app.get("/api/user/paths")
+async def get_user_paths_endpoint(user_id: str):
+    stored_user_id, _ = get_or_create_user(user_id)
+    paths = get_user_paths(stored_user_id)
+    return {"user_id": stored_user_id, "paths": paths}
+
+
+@app.post("/api/user/paths")
+async def set_user_paths_endpoint(request: UserPathsRequest):
+    stored_user_id, _ = get_or_create_user(request.user_id)
+    normalized = set_user_paths(stored_user_id, request.paths)
+    return {"user_id": stored_user_id, "paths": normalized}
+
+
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
     if not config or not registry:
@@ -274,14 +377,17 @@ async def chat_endpoint(request: ChatRequest):
     session_id = ensure_session(user_state, request.session_id)
     session = user_state["sessions"][session_id]
     user_state["active_session_id"] = session_id
+    user_paths = get_user_paths(user_id)
 
     request_config = with_model(config, selected_model)
     client = OpenAIClient(request_config)
-    agent = Agent(client, registry, SYSTEM_PROMPT)
+    system_prompt = build_system_prompt(user_paths)
+    agent = Agent(client, registry, system_prompt)
 
     def event_generator() -> Iterator[str]:
         # 立即发送 SSE 注释，避免客户端等待首包超时
         yield ": ping\n\n"
+        token = set_runtime_allowed_roots([Path(path) for path in user_paths])
         try:
             message_title = create_session_title(request.message)
             if session.get("title") == "新会话" and not session.get("messages"):
@@ -361,6 +467,7 @@ async def chat_endpoint(request: ChatRequest):
             )
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
         finally:
+            reset_runtime_allowed_roots(token)
             session["updatedAt"] = now_ms()
             log_event(
                 logging.INFO,
