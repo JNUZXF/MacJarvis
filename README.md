@@ -105,6 +105,8 @@ MacJarvis 是一个智能化的 macOS 系统管理助手，通过自然语言对
 - **流式响应**：实时显示 AI 回复内容，无需等待
 - **工具调用可视化**：实时显示工具调用过程和结果
 - **Markdown 支持**：AI 回复支持 Markdown 格式渲染
+- **多会话管理**：支持创建多个会话并快速切换
+- **用户标识**：每次进入自动生成唯一用户 ID，用于区分会话
 - **响应式设计**：支持桌面和移动端访问
 - **错误提示**：友好的错误提示和异常处理
 
@@ -245,6 +247,11 @@ npm run dev
 
 访问 `http://localhost:5173` 即可使用应用。
 
+如需在本地直连后端（不经过 nginx 代理），请在启动前设置：
+```bash
+export VITE_API_URL=http://localhost:8000
+```
+
 ### 方式二：Docker 部署（推荐）
 
 #### 使用 Docker Compose
@@ -280,13 +287,13 @@ docker build -t macjarvis-frontend -f Dockerfile.frontend .
 
 # 运行后端
 docker run -d --name backend \
-  -p 8000:8000 \
+  -p 8001:8000 \
   --env-file .env \
   macjarvis-backend
 
 # 运行前端
 docker run -d --name frontend \
-  -p 80:80 \
+  -p 8080:80 \
   --link backend:backend \
   macjarvis-frontend
 ```
@@ -643,7 +650,10 @@ docker compose -f docker-compose.yml up -d --build
 
 1. **确认后端服务运行**：
    ```bash
+   # 本地开发
    curl http://localhost:8000/health
+   # Docker 部署
+   curl http://localhost:8001/health
    ```
 
 2. **检查 CORS 配置**：后端已配置允许所有来源，如仍有问题检查网络请求
@@ -679,10 +689,12 @@ docker compose -f docker-compose.yml up -d --build
    ```bash
    # macOS/Linux
    lsof -i :8000
+   lsof -i :8001
    lsof -i :8080
    
    # 或使用 netstat
    netstat -an | grep 8000
+   netstat -an | grep 8001
    ```
 
 ### API 请求失败
@@ -695,7 +707,13 @@ docker compose -f docker-compose.yml up -d --build
 
 2. **测试 API 连接**：
    ```bash
+   # 本地开发
    curl -X POST http://localhost:8000/api/chat \
+     -H "Content-Type: application/json" \
+     -d '{"message": "test"}'
+
+   # Docker 部署
+   curl -X POST http://localhost:8001/api/chat \
      -H "Content-Type: application/json" \
      -d '{"message": "test"}'
    ```

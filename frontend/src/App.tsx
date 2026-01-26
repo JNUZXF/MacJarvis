@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Terminal as TerminalIcon } from 'lucide-react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import type { Message, ToolCall } from './types';
+import type { Message, ToolCall, ChatSession } from './types';
 import { ChatMessage } from './components/ChatMessage';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -12,11 +12,21 @@ const modelOptions = [
 ];
 
 function App() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [userId, setUserId] = useState('');
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState('');
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [model, setModel] = useState(modelOptions[0].value);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const apiUrl = import.meta.env.VITE_API_URL || '';
+
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === activeSessionId),
+    [sessions, activeSessionId]
+  );
+
+  const messages = activeSession?.messages ?? [];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -26,9 +36,135 @@ function App() {
     scrollToBottom();
   }, [messages]);
 
+  const initSessionState = async () => {
+    const storedUserId = localStorage.getItem('mac_agent_user_id');
+    const storedActive = localStorage.getItem('mac_agent_active_session');
+    const response = await fetch(`${apiUrl}/api/session/init`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: storedUserId || undefined,
+        active_session_id: storedActive || undefined,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Init session failed: ${response.status}`);
+    }
+    const data = await response.json();
+    setUserId(data.user_id);
+    localStorage.setItem('mac_agent_user_id', data.user_id);
+    setSessions(Array.isArray(data.sessions) ? data.sessions : []);
+    const nextActive = data.active_session_id || data.sessions?.[0]?.id || '';
+    setActiveSessionId(nextActive);
+    if (nextActive) {
+      localStorage.setItem('mac_agent_active_session', nextActive);
+    }
+    return {
+      userId: data.user_id,
+      activeSessionId: nextActive,
+      sessions: Array.isArray(data.sessions) ? data.sessions : [],
+    };
+  };
+
+  useEffect(() => {
+    initSessionState().catch((err) => {
+      console.error('Failed to init session:', err);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (activeSessionId) {
+      localStorage.setItem('mac_agent_active_session', activeSessionId);
+    }
+  }, [activeSessionId]);
+
+  const createSessionTitle = (content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return '新会话';
+    return trimmed.length > 24 ? `${trimmed.slice(0, 24)}...` : trimmed;
+  };
+
+  const createSession = async (title = '新会话') => {
+    const currentUserId = userId || localStorage.getItem('mac_agent_user_id');
+    if (!currentUserId) {
+      const initState = await initSessionState();
+      if (!initState.userId) {
+        return '';
+      }
+    }
+    const response = await fetch(`${apiUrl}/api/session/new`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: currentUserId || localStorage.getItem('mac_agent_user_id'),
+        title,
+      }),
+    });
+    if (!response.ok) {
+      console.error('Failed to create session:', response.status);
+      return '';
+    }
+    const session: ChatSession = await response.json();
+    setSessions((prev) => [session, ...prev]);
+    setActiveSessionId(session.id);
+    localStorage.setItem('mac_agent_active_session', session.id);
+    return session.id;
+  };
+
+  const loadSession = async (sessionId: string) => {
+    const currentUserId = userId || localStorage.getItem('mac_agent_user_id');
+    if (!currentUserId) {
+      return;
+    }
+    const response = await fetch(
+      `${apiUrl}/api/session/${sessionId}?user_id=${encodeURIComponent(currentUserId)}`
+    );
+    if (!response.ok) {
+      console.error('Failed to load session:', response.status);
+      return;
+    }
+    const session: ChatSession = await response.json();
+    setSessions((prev) => prev.map((item) => (item.id === sessionId ? session : item)));
+    setActiveSessionId(sessionId);
+    localStorage.setItem('mac_agent_active_session', sessionId);
+  };
+
+  const updateSessionMessages = (sessionId: string, updater: (messages: Message[]) => Message[]) => {
+    setSessions((prev) =>
+      prev.map((session) => {
+        if (session.id !== sessionId) return session;
+        const nextMessages = updater(session.messages);
+        const shouldUpdateTitle = session.title === '新会话' && session.messages.length === 0;
+        return {
+          ...session,
+          messages: nextMessages,
+          title: shouldUpdateTitle ? createSessionTitle(nextMessages[0]?.content ?? '') : session.title,
+          updatedAt: Date.now(),
+        };
+      })
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
+    let currentUserId = userId;
+    if (!currentUserId) {
+      const initState = await initSessionState();
+      currentUserId = initState.userId;
+    }
+    let sessionId = activeSessionId;
+    if (!sessionId) {
+      sessionId = await createSession();
+    }
+    if (!sessionId || !currentUserId) {
+      console.error('Missing user_id or session_id');
+      return;
+    }
 
     const userMessage: Message = {
       id: uuidv4(),
@@ -44,60 +180,94 @@ function App() {
       toolCalls: [],
     };
 
-    setMessages((prev) => [...prev, userMessage, assistantMessage]);
+    updateSessionMessages(sessionId, (prev) => [...prev, userMessage, assistantMessage]);
     setInput('');
     setIsLoading(true);
 
     try {
       // 使用相对路径，由 nginx 代理到后端
-      const apiUrl = import.meta.env.VITE_API_URL || '';
       await fetchEventSource(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: userMessage.content, model }),
+        body: JSON.stringify({
+          message: userMessage.content,
+          model,
+          user_id: currentUserId,
+          session_id: sessionId,
+        }),
         onmessage(ev) {
-          const data = JSON.parse(ev.data);
-          
-          setMessages((prev) => {
-            const newMessages = [...prev];
-            const msgIndex = newMessages.findIndex(m => m.id === assistantMessageId);
-            if (msgIndex === -1) return prev;
-            
-            const msg = { ...newMessages[msgIndex] };
-
-            if (ev.event === 'content') {
-              msg.content += data;
-            } else if (ev.event === 'tool_start') {
-              const toolCall: ToolCall = {
-                id: data.tool_call_id,
-                name: data.name,
-                args: data.args,
-                status: 'running',
-              };
-              msg.toolCalls = [...(msg.toolCalls || []), toolCall];
-            } else if (ev.event === 'tool_result') {
-              if (msg.toolCalls) {
-                msg.toolCalls = msg.toolCalls.map(tc => 
-                  tc.id === data.tool_call_id 
-                    ? { ...tc, result: data.result, status: 'completed' }
-                    : tc
-                );
-              }
-            } else if (ev.event === 'error') {
-               msg.content += `\n\n**Error:** ${data}`;
+          try {
+            // 忽略空事件（如 SSE 注释/心跳）
+            if (!ev.data || ev.data.trim() === '') {
+              return;
             }
+            const data = JSON.parse(ev.data);
+            
+            updateSessionMessages(sessionId, (prevMessages) => {
+              const newMessages = [...prevMessages];
+              const msgIndex = newMessages.findIndex(m => m.id === assistantMessageId);
+              if (msgIndex === -1) return prevMessages;
+              const msg = { ...newMessages[msgIndex] };
 
-            newMessages[msgIndex] = msg;
-            return newMessages;
-          });
+              if (ev.event === 'content') {
+                msg.content += data;
+              } else if (ev.event === 'tool_start') {
+                const toolCall: ToolCall = {
+                  id: data.tool_call_id,
+                  name: data.name,
+                  args: data.args,
+                  status: 'running',
+                };
+                msg.toolCalls = [...(msg.toolCalls || []), toolCall];
+              } else if (ev.event === 'tool_result') {
+                if (msg.toolCalls) {
+                  msg.toolCalls = msg.toolCalls.map(tc =>
+                    tc.id === data.tool_call_id
+                      ? {
+                          ...tc,
+                          result: data.result,
+                          status: data.result?.ok === false ? 'failed' : 'completed',
+                        }
+                      : tc
+                  );
+                }
+              } else if (ev.event === 'error') {
+                msg.content += `\n\n**Error:** ${data}`;
+                setIsLoading(false);
+              }
+
+              newMessages[msgIndex] = msg;
+              return newMessages;
+            });
+          } catch (parseErr) {
+            console.error('Failed to parse SSE data:', parseErr, ev);
+            // 如果解析失败，尝试直接显示原始数据
+            updateSessionMessages(sessionId, (prevMessages) => {
+              const newMessages = [...prevMessages];
+              const msgIndex = newMessages.findIndex(m => m.id === assistantMessageId);
+              if (msgIndex === -1) return prevMessages;
+              const msg = { ...newMessages[msgIndex] };
+              msg.content += `\n\n**Parse Error:** ${ev.data}`;
+              newMessages[msgIndex] = msg;
+              return newMessages;
+            });
+          }
         },
         onerror(err) {
           console.error('EventSource failed:', err);
+          updateSessionMessages(sessionId, (prevMessages) => {
+            const newMessages = [...prevMessages];
+            const msgIndex = newMessages.findIndex(m => m.id === assistantMessageId);
+            if (msgIndex === -1) return prevMessages;
+            const msg = { ...newMessages[msgIndex] };
+            msg.content += `\n\n**Connection Error:** ${err instanceof Error ? err.message : String(err)}`;
+            newMessages[msgIndex] = msg;
+            return newMessages;
+          });
           setIsLoading(false);
-          // Do not retry
-          throw err; 
+          // 不抛出错误，让连接正常关闭
         },
         onclose() {
           setIsLoading(false);
@@ -116,16 +286,39 @@ function App() {
           <TerminalIcon className="w-6 h-6 text-blue-400" />
           <h1 className="text-xl font-bold tracking-tight">MacAgent</h1>
         </div>
+
+        <div className="mb-6 px-2">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">User</div>
+          <div className="text-xs text-gray-300 break-all">{userId || '生成中...'}</div>
+        </div>
         
         <div className="flex-1 overflow-y-auto">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 px-2">
-            Capabilities
+          <div className="flex items-center justify-between text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 px-2">
+            <span>Sessions</span>
+            <button
+              type="button"
+              onClick={() => createSession()}
+              className="text-blue-300 hover:text-blue-200"
+            >
+              新建
+            </button>
           </div>
           <ul className="space-y-1 text-sm text-gray-300">
-            <li className="px-2 py-1.5 hover:bg-gray-800 rounded cursor-default">System Info</li>
-            <li className="px-2 py-1.5 hover:bg-gray-800 rounded cursor-default">File Management</li>
-            <li className="px-2 py-1.5 hover:bg-gray-800 rounded cursor-default">Process Control</li>
-            <li className="px-2 py-1.5 hover:bg-gray-800 rounded cursor-default">Network Tools</li>
+            {sessions.length === 0 ? (
+              <li className="px-2 py-1.5 text-gray-500">暂无会话</li>
+            ) : (
+              sessions.map((session) => (
+                <li
+                  key={session.id}
+                  className={`px-2 py-1.5 rounded cursor-pointer ${
+                    session.id === activeSessionId ? 'bg-gray-800 text-white' : 'hover:bg-gray-800'
+                  }`}
+                  onClick={() => loadSession(session.id)}
+                >
+                  {session.title || '新会话'}
+                </li>
+              ))
+            )}
           </ul>
         </div>
 

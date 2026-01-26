@@ -112,7 +112,14 @@ class Agent:
                     result = {"ok": False, "error": "Invalid JSON arguments"}
                 else:
                     yield {"type": "tool_start", "tool_call_id": tool_call_id, "name": name, "args": args}
-                    result = self.registry.execute(name, args)
+                    try:
+                        result = self.registry.execute(name, args)
+                    except Exception as exc:
+                        result = {
+                            "ok": False,
+                            "error": str(exc),
+                            "error_type": type(exc).__name__,
+                        }
 
                 yield {"type": "tool_result", "tool_call_id": tool_call_id, "result": result}
 
