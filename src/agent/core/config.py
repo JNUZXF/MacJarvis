@@ -28,13 +28,27 @@ def with_model(config: OpenAIConfig, model: str) -> OpenAIConfig:
 
 
 def load_openai_config() -> OpenAIConfig:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip()
+    openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    openai_base_url = os.getenv("OPENAI_BASE_URL", "").strip()
+    openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    openrouter_base_url = os.getenv("OPENROUTER_BASE_URL", "").strip()
+
+    use_openrouter = False
+    if openrouter_api_key and openrouter_base_url:
+        if not openai_api_key or not openai_base_url or openai_base_url == "https://api.openai.com":
+            use_openrouter = True
+
+    if use_openrouter:
+        api_key = openrouter_api_key
+        base_url = openrouter_base_url
+    else:
+        api_key = openai_api_key
+        base_url = openai_base_url or "https://api.openai.com"
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
     timeout_s = int(os.getenv("OPENAI_TIMEOUT_S", "60"))
     max_tool_turns = int(os.getenv("OPENAI_MAX_TOOL_TURNS", "8"))
     if not api_key:
-        raise ValueError("OPENAI_API_KEY is required")
+        raise ValueError("OPENAI_API_KEY or OPENROUTER_API_KEY is required")
     return OpenAIConfig(
         api_key=api_key,
         base_url=base_url,

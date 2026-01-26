@@ -26,6 +26,8 @@ MANIFEST
 venv/
 ENV/
 env/
+.cursor/
+docs/
 
 # Environment variables
 .env
