@@ -6,11 +6,22 @@ export interface ToolCall {
   status: 'running' | 'completed' | 'failed';
 }
 
+export type MessageBlock =
+  | {
+      type: 'content';
+      content: string;
+    }
+  | {
+      type: 'tool';
+      toolCallId: string;
+    };
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   toolCalls?: ToolCall[];
+  blocks?: MessageBlock[];
 }
 
 export interface ChatSession {

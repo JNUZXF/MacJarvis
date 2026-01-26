@@ -223,6 +223,12 @@ function App() {
       id: uuidv4(),
       role: 'user',
       content: input.trim(),
+      blocks: [
+        {
+          type: 'content',
+          content: input.trim(),
+        },
+      ],
     };
 
     const assistantMessageId = uuidv4();
@@ -231,6 +237,7 @@ function App() {
       role: 'assistant',
       content: '',
       toolCalls: [],
+      blocks: [],
     };
 
     updateSessionMessages(sessionId, (prev) => [...prev, userMessage, assistantMessage]);
@@ -262,10 +269,23 @@ function App() {
               const newMessages = [...prevMessages];
               const msgIndex = newMessages.findIndex(m => m.id === assistantMessageId);
               if (msgIndex === -1) return prevMessages;
-              const msg = { ...newMessages[msgIndex] };
+              const currentMsg = newMessages[msgIndex];
+              const msg: Message = {
+                ...currentMsg,
+                toolCalls: [...(currentMsg.toolCalls || [])],
+                blocks: [...(currentMsg.blocks || [])],
+              };
 
               if (ev.event === 'content') {
                 msg.content += data;
+                const nextBlocks = msg.blocks || [];
+                const lastBlock = nextBlocks[nextBlocks.length - 1];
+                if (lastBlock?.type === 'content') {
+                  lastBlock.content += data;
+                } else {
+                  nextBlocks.push({ type: 'content', content: data });
+                }
+                msg.blocks = nextBlocks;
               } else if (ev.event === 'tool_start') {
                 const toolCall: ToolCall = {
                   id: data.tool_call_id,
@@ -274,6 +294,7 @@ function App() {
                   status: 'running',
                 };
                 msg.toolCalls = [...(msg.toolCalls || []), toolCall];
+                msg.blocks = [...(msg.blocks || []), { type: 'tool', toolCallId: toolCall.id }];
               } else if (ev.event === 'tool_result') {
                 if (msg.toolCalls) {
                   msg.toolCalls = msg.toolCalls.map(tc =>
@@ -288,6 +309,14 @@ function App() {
                 }
               } else if (ev.event === 'error') {
                 msg.content += `\n\n**Error:** ${data}`;
+                const nextBlocks = msg.blocks || [];
+                const lastBlock = nextBlocks[nextBlocks.length - 1];
+                if (lastBlock?.type === 'content') {
+                  lastBlock.content += `\n\n**Error:** ${data}`;
+                } else {
+                  nextBlocks.push({ type: 'content', content: `\n\n**Error:** ${data}` });
+                }
+                msg.blocks = nextBlocks;
                 setIsLoading(false);
               }
 
@@ -301,8 +330,21 @@ function App() {
               const newMessages = [...prevMessages];
               const msgIndex = newMessages.findIndex(m => m.id === assistantMessageId);
               if (msgIndex === -1) return prevMessages;
-              const msg = { ...newMessages[msgIndex] };
+              const currentMsg = newMessages[msgIndex];
+              const msg: Message = {
+                ...currentMsg,
+                toolCalls: [...(currentMsg.toolCalls || [])],
+                blocks: [...(currentMsg.blocks || [])],
+              };
               msg.content += `\n\n**Parse Error:** ${ev.data}`;
+              const nextBlocks = msg.blocks || [];
+              const lastBlock = nextBlocks[nextBlocks.length - 1];
+              if (lastBlock?.type === 'content') {
+                lastBlock.content += `\n\n**Parse Error:** ${ev.data}`;
+              } else {
+                nextBlocks.push({ type: 'content', content: `\n\n**Parse Error:** ${ev.data}` });
+              }
+              msg.blocks = nextBlocks;
               newMessages[msgIndex] = msg;
               return newMessages;
             });
@@ -314,8 +356,24 @@ function App() {
             const newMessages = [...prevMessages];
             const msgIndex = newMessages.findIndex(m => m.id === assistantMessageId);
             if (msgIndex === -1) return prevMessages;
-            const msg = { ...newMessages[msgIndex] };
+            const currentMsg = newMessages[msgIndex];
+            const msg: Message = {
+              ...currentMsg,
+              toolCalls: [...(currentMsg.toolCalls || [])],
+              blocks: [...(currentMsg.blocks || [])],
+            };
             msg.content += `\n\n**Connection Error:** ${err instanceof Error ? err.message : String(err)}`;
+            const nextBlocks = msg.blocks || [];
+            const lastBlock = nextBlocks[nextBlocks.length - 1];
+            if (lastBlock?.type === 'content') {
+              lastBlock.content += `\n\n**Connection Error:** ${err instanceof Error ? err.message : String(err)}`;
+            } else {
+              nextBlocks.push({
+                type: 'content',
+                content: `\n\n**Connection Error:** ${err instanceof Error ? err.message : String(err)}`,
+              });
+            }
+            msg.blocks = nextBlocks;
             newMessages[msgIndex] = msg;
             return newMessages;
           });
