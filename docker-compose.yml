@@ -17,7 +17,7 @@ services:
       - HOME=/host_home
     volumes:
       # 可选：挂载源代码以便开发时热重载
-      # - ./src:/app/src
+      # - ./backend:/app/backend
       - ./logs:/app/logs
       - ./backend_data:/app/backend_data
       - ${HOME}:/host_home

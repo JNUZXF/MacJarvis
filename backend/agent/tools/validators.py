@@ -1,3 +1,5 @@
+# File: backend/agent/tools/validators.py
+# Purpose: Validate and normalize file paths for tool access control.
 import contextvars
 import getpass
 import os

@@ -1,3 +1,6 @@
+# File: backend/server/app.py
+# Purpose: Provide FastAPI backend with SSE chat, memory, and attachment handling.
+import base64
 import json
 import logging
 import os
@@ -9,19 +12,21 @@ from pathlib import Path
 import threading
 from typing import Iterator
 
-from fastapi import FastAPI, Request, status, HTTPException
+from fastapi import FastAPI, Request, status, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
 
-# Add src to path
+# Add backend to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from agent.core.agent import Agent
 from agent.core.client import OpenAIClient
 from agent.core.config import ALLOWED_MODELS, is_model_allowed, load_openai_config, with_model
+from agent.memory.manager import MemoryManager
+from agent.memory.store import EpisodicMemory, SemanticMemory, ShortTermMemory
 from agent.tools.mac_tools import build_default_tools
 from agent.tools.registry import ToolRegistry
 from agent.tools.validators import normalize_path, reset_runtime_allowed_roots, set_runtime_allowed_roots
@@ -82,8 +87,20 @@ def create_session(title: str) -> dict[str, object]:
 
 USER_STORE: dict[str, dict[str, object]] = {}
 USER_PATHS_LOCK = threading.Lock()
+UPLOAD_LOCK = threading.Lock()
 DATA_DIR = Path(__file__).resolve().parents[2] / "backend_data"
 USER_PATHS_FILE = DATA_DIR / "user_paths.json"
+UPLOAD_DIR = DATA_DIR / "uploads"
+UPLOAD_INDEX_FILE = DATA_DIR / "uploads.json"
+
+MEMORY_DB_PATH = DATA_DIR / "memory.sqlite"
+MEMORY_WINDOW_SIZE = int(os.getenv("MEMORY_WINDOW_SIZE", "10"))
+MEMORY_TTL_S = int(os.getenv("MEMORY_TTL_S", "3600"))
+MEMORY_CONTEXT_MAX_CHARS = int(os.getenv("MEMORY_CONTEXT_MAX_CHARS", "4000"))
+MEMORY_SUMMARY_TRIGGER = int(os.getenv("MEMORY_SUMMARY_TRIGGER", "24"))
+MEMORY_KEEP_LAST = int(os.getenv("MEMORY_KEEP_LAST", "8"))
+ATTACHMENT_TEXT_LIMIT = int(os.getenv("ATTACHMENT_TEXT_LIMIT", "10000"))
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 
 def build_system_prompt(user_paths: list[str]) -> str:
@@ -164,6 +181,113 @@ def set_user_paths(user_id: str, paths: list[str]) -> list[str]:
     return normalized
 
 
+def load_upload_index() -> dict[str, object]:
+    if not UPLOAD_INDEX_FILE.exists():
+        return {"version": 1, "files": {}}
+    try:
+        with UPLOAD_INDEX_FILE.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or "files" not in data:
+            return {"version": 1, "files": {}}
+        if not isinstance(data.get("files"), dict):
+            return {"version": 1, "files": {}}
+        return data
+    except (OSError, json.JSONDecodeError):
+        return {"version": 1, "files": {}}
+
+
+def save_upload_index(data: dict[str, object]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_file = UPLOAD_INDEX_FILE.with_suffix(".json.tmp")
+    with tmp_file.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    tmp_file.replace(UPLOAD_INDEX_FILE)
+
+
+def register_upload(meta: dict[str, object]) -> None:
+    with UPLOAD_LOCK:
+        store = load_upload_index()
+        files = store.get("files")
+        if not isinstance(files, dict):
+            files = {}
+            store["files"] = files
+        files[meta["id"]] = meta
+        save_upload_index(store)
+
+
+def get_upload(file_id: str) -> dict[str, object] | None:
+    with UPLOAD_LOCK:
+        store = load_upload_index()
+        files = store.get("files", {})
+        if isinstance(files, dict):
+            return files.get(file_id)
+    return None
+
+
+def is_image_file(path: Path, content_type: str | None) -> bool:
+    if content_type and content_type.startswith("image/"):
+        return True
+    return path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+
+def extract_text_from_file(path: Path) -> str:
+    ext = path.suffix.lower()
+    try:
+        if ext == ".pdf":
+            import PyPDF2
+
+            text_parts = []
+            with path.open("rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                for page in reader.pages:
+                    text_parts.append(page.extract_text() or "")
+            return "\n\n".join(text_parts)
+        if ext in {".docx", ".doc"}:
+            import docx
+
+            doc = docx.Document(str(path))
+            return "\n\n".join([para.text for para in doc.paragraphs])
+        if ext in {".xlsx", ".xls"}:
+            import pandas as pd
+
+            df = pd.read_excel(str(path))
+            return df.to_string()
+        if ext == ".txt":
+            return path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        log_event(logging.WARNING, "attachment_parse_failed", error=str(exc), path=str(path))
+        return ""
+    return ""
+
+
+def build_attachment_context(attachments: list[dict[str, object]]) -> tuple[str, list[dict[str, object]]]:
+    context_parts: list[str] = []
+    image_parts: list[dict[str, object]] = []
+    for item in attachments:
+        file_id = str(item.get("file_id") or "")
+        if not file_id:
+            continue
+        meta = get_upload(file_id)
+        if not meta:
+            continue
+        path = Path(str(meta.get("path", "")))
+        if not path.exists():
+            continue
+        content_type = str(meta.get("content_type") or "")
+        if is_image_file(path, content_type):
+            raw = path.read_bytes()
+            encoded = base64.b64encode(raw).decode("ascii")
+            image_url = f"data:{content_type or 'image/png'};base64,{encoded}"
+            image_parts.append({"type": "image_url", "image_url": {"url": image_url}})
+        else:
+            text = extract_text_from_file(path)
+            if text:
+                trimmed = text[:ATTACHMENT_TEXT_LIMIT]
+                context_parts.append(f"文件:{meta.get('filename')}\n{trimmed}")
+    context = "\n\n".join(context_parts).strip()
+    return context, image_parts
+
+
 def get_or_create_user(user_id: str | None) -> tuple[str, dict[str, object]]:
     if user_id and user_id in USER_STORE:
         return user_id, USER_STORE[user_id]
@@ -189,6 +313,37 @@ def list_sessions(user_state: dict[str, object]) -> list[dict[str, object]]:
     sessions.sort(key=lambda item: item.get("updatedAt", 0), reverse=True)
     return sessions
 
+
+def summarize_session(
+    client: OpenAIClient,
+    messages: list[dict[str, object]],
+    max_chars: int = 1200,
+) -> str:
+    content_lines = []
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if content:
+            content_lines.append(f"{role}: {content}")
+    content_text = "\n".join(content_lines)[-6000:]
+    prompt = (
+        "请用简洁中文总结以下对话，保留用户目标、关键步骤和重要结论：\n"
+        f"{content_text}\n\n总结:"
+    )
+    response = client.chat_completions(
+        messages=[{"role": "system", "content": "你是一个擅长总结的助手。"}, {"role": "user", "content": prompt}],
+        tools=None,
+        stream=False,
+    )
+    try:
+        summary = response["choices"][0]["message"]["content"].strip()
+    except (KeyError, IndexError, AttributeError):
+        summary = ""
+    if len(summary) > max_chars:
+        summary = summary[:max_chars] + "..."
+    return summary
+
+
 # SSE响应头配置
 def add_sse_headers(response: StreamingResponse) -> StreamingResponse:
     """为SSE响应添加必要的响应头"""
@@ -196,6 +351,7 @@ def add_sse_headers(response: StreamingResponse) -> StreamingResponse:
     response.headers["Connection"] = "keep-alive"
     response.headers["X-Accel-Buffering"] = "no"
     return response
+
 
 # 全局异常处理器 - 确保所有错误都返回SSE格式
 @app.exception_handler(Exception)
@@ -219,6 +375,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": str(exc)}
     )
 
+
 # 请求验证错误处理器
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -238,6 +395,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={"detail": exc.errors()}
     )
+
 
 # HTTP异常处理器（包括404）
 @app.exception_handler(StarletteHTTPException)
@@ -259,28 +417,45 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         content={"detail": exc.detail}
     )
 
+
 # Initialize shared config and tools
 try:
     config = load_openai_config()
     registry = ToolRegistry(build_default_tools())
-    
+
+    memory_manager = MemoryManager(
+        short_term=ShortTermMemory(window_size=MEMORY_WINDOW_SIZE, ttl_s=MEMORY_TTL_S),
+        episodic=EpisodicMemory(MEMORY_DB_PATH),
+        semantic=SemanticMemory(MEMORY_DB_PATH, embedding_config=config, embedding_model=EMBEDDING_MODEL),
+        context_max_chars=MEMORY_CONTEXT_MAX_CHARS,
+    )
+
     BASE_SYSTEM_PROMPT = """你是一个专业的 macOS 智能助手，可以帮助用户管理系统、排查问题、执行自动化任务。
 你可以使用提供的工具来获取信息或执行操作。
 在执行具有潜在风险的操作（如删除文件、修改系统设置）前，请务必仔细确认路径和参数。
 请用中文回复用户。
 """
-    
+
 except Exception as e:
     print(f"Warning: Agent initialization failed: {e}")
     config = None
     registry = None
+    memory_manager = None
     BASE_SYSTEM_PROMPT = ""
+
+
+class ChatAttachment(BaseModel):
+    file_id: str
+    filename: str | None = None
+    content_type: str | None = None
+
 
 class ChatRequest(BaseModel):
     message: str
     model: str | None = None
     user_id: str | None = None
     session_id: str | None = None
+    attachments: list[ChatAttachment] | None = None
 
 
 class SessionInitRequest(BaseModel):
@@ -297,10 +472,31 @@ class UserPathsRequest(BaseModel):
     user_id: str
     paths: list[str]
 
+
 @app.get("/health")
 async def health_check():
     """健康检查端点"""
     return {"status": "ok", "service": "macjarvis-backend"}
+
+
+@app.post("/api/files")
+async def upload_file(file: UploadFile = File(...)):
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    file_id = str(uuid.uuid4())
+    safe_name = file.filename or "upload.bin"
+    stored_path = UPLOAD_DIR / f"{file_id}_{safe_name}"
+    data = await file.read()
+    stored_path.write_bytes(data)
+    meta = {
+        "id": file_id,
+        "filename": safe_name,
+        "content_type": file.content_type,
+        "path": str(stored_path),
+        "size": len(data),
+        "created_at": now_ms(),
+    }
+    register_upload(meta)
+    return meta
 
 
 @app.post("/api/session/init")
@@ -384,6 +580,20 @@ async def chat_endpoint(request: ChatRequest):
     system_prompt = build_system_prompt(user_paths)
     agent = Agent(client, registry, system_prompt)
 
+    attachments = [item.model_dump() for item in (request.attachments or [])]
+    attachment_context, image_parts = build_attachment_context(attachments)
+    memory_context = ""
+    if memory_manager:
+        memory_context = memory_manager.build_context(user_id, session_id, request.message)
+
+    extra_system_parts = [part for part in [memory_context, attachment_context] if part]
+    extra_system_prompt = "\n\n".join(extra_system_parts).strip()
+
+    if image_parts:
+        user_content = [{"type": "text", "text": request.message}, *image_parts]
+    else:
+        user_content = request.message
+
     def event_generator() -> Iterator[str]:
         # 立即发送 SSE 注释，避免客户端等待首包超时
         yield ": ping\n\n"
@@ -399,6 +609,9 @@ async def chat_endpoint(request: ChatRequest):
             session["updatedAt"] = now_ms()
             tool_index: dict[str, int] = {}
 
+            if memory_manager:
+                memory_manager.record_message(session_id, "user", request.message)
+
             log_event(
                 logging.INFO,
                 "chat_start",
@@ -407,7 +620,11 @@ async def chat_endpoint(request: ChatRequest):
                 model=selected_model,
                 message_length=len(request.message),
             )
-            for event in agent.run_stream(request.message, request_config.max_tool_turns):
+            for event in agent.run_stream(
+                user_content,
+                request_config.max_tool_turns,
+                extra_system_prompt=extra_system_prompt if extra_system_prompt else None,
+            ):
                 if event["type"] == "content":
                     # Using json.dumps to handle escaping newlines etc.
                     assistant_message["content"] += event["content"]
@@ -467,8 +684,42 @@ async def chat_endpoint(request: ChatRequest):
             )
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
         finally:
-            reset_runtime_allowed_roots(token)
+            try:
+                reset_runtime_allowed_roots(token)
+            except ValueError:
+                # 避免测试环境线程切换导致的 ContextVar 重置失败
+                pass
             session["updatedAt"] = now_ms()
+            if memory_manager:
+                if assistant_message.get("content"):
+                    memory_manager.record_message(session_id, "assistant", str(assistant_message.get("content") or ""))
+                summary = str(assistant_message.get("content") or "")[:200]
+                memory_manager.store_episode(
+                    user_id=user_id,
+                    session_id=session_id,
+                    episode_type="conversation",
+                    summary=summary,
+                    content={
+                        "user": request.message,
+                        "assistant": assistant_message.get("content", ""),
+                        "attachments": attachments,
+                    },
+                )
+
+            if len(session.get("messages", [])) >= MEMORY_SUMMARY_TRIGGER:
+                summary_text = summarize_session(client, session.get("messages", []))
+                if memory_manager and summary_text:
+                    memory_manager.store_episode(
+                        user_id=user_id,
+                        session_id=session_id,
+                        episode_type="summary",
+                        summary=summary_text[:200],
+                        content={"summary": summary_text},
+                        metadata={"trigger": "auto"},
+                    )
+                if MEMORY_KEEP_LAST > 0:
+                    session["messages"] = session["messages"][-MEMORY_KEEP_LAST:]
+
             log_event(
                 logging.INFO,
                 "chat_end",
@@ -477,9 +728,10 @@ async def chat_endpoint(request: ChatRequest):
             )
 
     return add_sse_headers(StreamingResponse(
-        event_generator(), 
+        event_generator(),
         media_type="text/event-stream"
     ))
+
 
 if __name__ == "__main__":
     import uvicorn

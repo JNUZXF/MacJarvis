@@ -1,3 +1,5 @@
+# File: backend/agent/tools/base.py
+# Purpose: Define the protocol for tool implementations.
 from typing import Any, Protocol
 
 

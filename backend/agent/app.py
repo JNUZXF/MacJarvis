@@ -1,3 +1,5 @@
+# File: backend/agent/app.py
+# Purpose: Provide a CLI entrypoint for the backend agent runtime.
 import sys
 
 from agent.core.agent import Agent

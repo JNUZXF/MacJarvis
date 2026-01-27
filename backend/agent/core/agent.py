@@ -1,3 +1,5 @@
+# File: backend/agent/core/agent.py
+# Purpose: Provide the core agent loop with streaming, tools, and context injection.
 import json
 from typing import Any, Iterator, Literal, TypedDict, Union
 
@@ -32,16 +34,29 @@ class Agent:
         self.registry = registry
         self.system_prompt = system_prompt
 
-    def run_stream(self, user_input: str, max_tool_turns: int) -> Iterator[AgentEvent]:
+    def run_stream(
+        self,
+        user_input: Any,
+        max_tool_turns: int,
+        extra_system_prompt: str | None = None,
+        extra_messages: list[dict[str, Any]] | None = None,
+    ) -> Iterator[AgentEvent]:
+        system_content = self.system_prompt
+        if extra_system_prompt:
+            system_content = f"{system_content}\n\n{extra_system_prompt}"
+
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": user_input},
+            {"role": "system", "content": system_content},
         ]
+        if extra_messages:
+            messages.extend(extra_messages)
+        messages.append({"role": "user", "content": user_input})
+
         tools = self.registry.openai_tools()
 
         for _ in range(max_tool_turns):
             stream = self.client.chat_completions(messages, tools, stream=True)
-            
+
             current_content = ""
             # index -> {id, name, args_str}
             current_tool_calls: dict[int, dict[str, str]] = {}
@@ -66,7 +81,7 @@ class Agent:
                         index = tc.get("index", 0)
                         if index not in current_tool_calls:
                             current_tool_calls[index] = {"id": "", "name": "", "arguments": ""}
-                        
+
                         if tc.get("id"):
                             current_tool_calls[index]["id"] = tc.get("id")
                         if tc.get("function", {}).get("name"):
@@ -95,7 +110,7 @@ class Agent:
                         "arguments": tc_data["arguments"],
                     },
                 })
-            
+
             message["tool_calls"] = tool_calls
             messages.append(message)
 
@@ -128,11 +143,11 @@ class Agent:
                     "tool_call_id": tool_call_id,
                     "content": json.dumps(result, ensure_ascii=False),
                 })
-        
+
         # Max turns exceeded
         yield {"type": "content", "content": "\n\n[System: Max tool turns exceeded]"}
 
-    def run(self, user_input: str, max_tool_turns: int) -> str:
+    def run(self, user_input: Any, max_tool_turns: int) -> str:
         full_content = ""
         for event in self.run_stream(user_input, max_tool_turns):
             if event["type"] == "content":

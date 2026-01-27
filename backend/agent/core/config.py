@@ -1,3 +1,5 @@
+# File: backend/agent/core/config.py
+# Purpose: Load and validate OpenAI/OpenRouter configuration for backend runtime.
 from dataclasses import dataclass, replace
 import os
 

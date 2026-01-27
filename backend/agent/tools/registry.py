@@ -1,3 +1,5 @@
+# File: backend/agent/tools/registry.py
+# Purpose: Register tools and expose OpenAI tool schemas.
 from typing import Any
 
 from agent.tools.base import Tool

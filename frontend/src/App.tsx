@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Terminal as TerminalIcon } from 'lucide-react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import type { Message, ToolCall, ChatSession } from './types';
+import type { Message, ToolCall, ChatSession, ChatAttachment } from './types';
 import { ChatMessage } from './components/ChatMessage';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -21,6 +21,9 @@ function App() {
   const [userPaths, setUserPaths] = useState<string[]>([]);
   const [pathInput, setPathInput] = useState('');
   const [pathError, setPathError] = useState('');
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const apiUrl = import.meta.env.VITE_API_URL || '';
 
@@ -204,7 +207,7 @@ function App() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || isUploading) return;
     let currentUserId = userId;
     if (!currentUserId) {
       const initState = await initSessionState();
@@ -256,6 +259,7 @@ function App() {
           model,
           user_id: currentUserId,
           session_id: sessionId,
+          attachments,
         }),
         onmessage(ev) {
           try {
@@ -387,6 +391,9 @@ function App() {
     } catch (err) {
       console.error('Request failed', err);
       setIsLoading(false);
+    } finally {
+      setAttachments([]);
+      setUploadError('');
     }
   };
 
@@ -403,6 +410,47 @@ function App() {
 
   const handleQuickAdd = async (path: string) => {
     await saveUserPaths([...userPaths, path]);
+  };
+
+  const uploadFile = async (file: File): Promise<ChatAttachment | null> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${apiUrl}/api/files`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      throw new Error(`Upload failed: ${response.status}`);
+    }
+    const data = await response.json();
+    return {
+      file_id: data.id,
+      filename: data.filename,
+      content_type: data.content_type,
+    };
+  };
+
+  const handleFilesSelected = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setIsUploading(true);
+    setUploadError('');
+    try {
+      const results: ChatAttachment[] = [];
+      for (const file of Array.from(files)) {
+        const attachment = await uploadFile(file);
+        if (attachment) results.push(attachment);
+      }
+      setAttachments((prev) => [...prev, ...results]);
+    } catch (err) {
+      console.error('Upload failed', err);
+      setUploadError('文件上传失败');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRemoveAttachment = (fileId: string) => {
+    setAttachments((prev) => prev.filter((item) => item.file_id !== fileId));
   };
 
   return (
@@ -553,6 +601,38 @@ function App() {
                 ))}
               </select>
             </div>
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Attachments
+              </label>
+              <input
+                type="file"
+                multiple
+                onChange={(e) => handleFilesSelected(e.target.files)}
+                className="flex-1 text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:bg-gray-200 file:text-gray-700 hover:file:bg-gray-300"
+                disabled={isUploading}
+              />
+            </div>
+            {attachments.length > 0 ? (
+              <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                {attachments.map((item) => (
+                  <span
+                    key={item.file_id}
+                    className="inline-flex items-center gap-2 px-2 py-1 rounded bg-gray-100 border border-gray-200"
+                  >
+                    {item.filename || item.file_id}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(item.file_id)}
+                      className="text-red-400 hover:text-red-500"
+                    >
+                      移除
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {uploadError ? <div className="text-xs text-red-400">{uploadError}</div> : null}
             <div className="relative">
               <input
                 type="text"
@@ -560,11 +640,11 @@ function App() {
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Check system load, find large files, or restart a service..."
                 className="w-full pl-4 pr-12 py-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all shadow-sm"
-                disabled={isLoading}
+                disabled={isLoading || isUploading}
               />
               <button
                 type="submit"
-                disabled={isLoading || !input.trim()}
+                disabled={isLoading || isUploading || !input.trim()}
                 className="absolute right-2 top-2 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <Send className="w-4 h-4" />

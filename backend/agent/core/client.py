@@ -1,3 +1,5 @@
+# File: backend/agent/core/client.py
+# Purpose: Provide OpenAI-compatible client utilities for backend runtime.
 import json
 from typing import Any, Iterator
 import httpx
@@ -13,7 +15,7 @@ class OpenAIClient:
     def chat_completions(
         self,
         messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         stream: bool = False,
     ) -> dict[str, Any] | Iterator[dict[str, Any]]:
         base_url = self.config.base_url.rstrip("/")
@@ -22,14 +24,15 @@ class OpenAIClient:
         else:
             url = f"{base_url}/v1/chat/completions"
 
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.config.model,
             "messages": messages,
-            "tools": tools,
-            "tool_choice": "auto",
             "stream": stream,
         }
-        
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.config.api_key}",

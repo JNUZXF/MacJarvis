@@ -1,3 +1,5 @@
+# File: backend/agent/tools/mac_tools.py
+# Purpose: Provide built-in macOS tools and file helpers for the backend agent.
 import json
 import os
 import shutil

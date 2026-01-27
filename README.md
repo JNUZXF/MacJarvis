@@ -106,6 +106,8 @@ MacJarvis 是一个智能化的 macOS 系统管理助手，通过自然语言对
 - **工具调用可视化**：实时显示工具调用过程和结果
 - **Markdown 支持**：AI 回复支持 Markdown 格式渲染
 - **多会话管理**：支持创建多个会话并快速切换
+- **附件支持**：支持上传图片/文档并作为对话上下文
+- **上下文增强**：会话摘要与记忆检索增强长对话体验
 - **用户标识**：每次进入自动生成唯一用户 ID，用于区分会话
 - **响应式设计**：支持桌面和移动端访问
 - **错误提示**：友好的错误提示和异常处理
@@ -140,12 +142,15 @@ MacJarvis 是一个智能化的 macOS 系统管理助手，通过自然语言对
 
 ```
 mac_agent/
-├── src/                          # 后端源代码
+├── backend/                      # 后端源代码
 │   ├── agent/                    # 智能体核心模块
 │   │   ├── core/                # 核心组件
 │   │   │   ├── agent.py         # Agent 主类（流式处理、工具调用）
 │   │   │   ├── client.py        # OpenAI API 客户端封装
 │   │   │   └── config.py        # 配置管理和模型验证
+│   │   ├── memory/              # 记忆系统（短期/情景/语义）
+│   │   │   ├── manager.py       # 记忆编排与上下文构建
+│   │   │   └── store.py         # 记忆存储实现
 │   │   ├── tools/               # 工具模块
 │   │   │   ├── base.py          # 工具基类定义
 │   │   │   ├── registry.py      # 工具注册表和管理
@@ -154,7 +159,7 @@ mac_agent/
 │   │   │   └── validators.py    # 路径验证和安全检查
 │   │   └── app.py               # CLI 入口（命令行工具）
 │   └── server/                  # FastAPI 服务器
-│       └── app.py              # API 服务器（SSE 流式响应）
+│       └── app.py               # API 服务器（SSE 流式响应）
 ├── frontend/                    # 前端应用
 │   ├── src/
 │   │   ├── App.tsx             # 主应用组件
@@ -197,7 +202,7 @@ cd MacJarvis
 
 ```bash
 # 进入后端目录
-cd src
+cd backend
 
 # 创建虚拟环境
 python3 -m venv .venv
@@ -226,7 +231,7 @@ npm install
 **启动后端服务**（在项目根目录下）：
 
 ```bash
-cd src
+cd backend
 source .venv/bin/activate
 cd server
 python app.py
@@ -338,7 +343,7 @@ OPENAI_MAX_TOOL_TURNS=8      # 最大工具调用轮数
 - `AGENT_ALLOWED_ROOTS`：使用系统路径分隔符（macOS/Linux 为 `:`）分隔多个路径
 - 示例：`AGENT_ALLOWED_ROOTS=/Users/your_username:/Users/your_username/Desktop`
 
-若必须修改默认白名单，可编辑 `src/agent/tools/validators.py` 中的 `BASE_ALLOWED_ROOTS` 列表：
+若必须修改默认白名单，可编辑 `backend/agent/tools/validators.py` 中的 `BASE_ALLOWED_ROOTS` 列表：
 
 ```python
 BASE_ALLOWED_ROOTS = [
@@ -408,19 +413,19 @@ API：
 
 ### 核心组件
 
-#### 1. Agent 核心 (`agent/core/agent.py`)
+#### 1. Agent 核心 (`backend/agent/core/agent.py`)
 
 - **流式处理**：支持 Server-Sent Events (SSE) 流式响应
 - **工具调用循环**：自动处理多轮工具调用，直到获得最终结果
 - **事件系统**：统一的事件类型（content、tool_start、tool_result）
 
-#### 2. 工具系统 (`agent/tools/`)
+#### 2. 工具系统 (`backend/agent/tools/`)
 
 - **工具注册表**：统一管理所有可用工具
 - **工具执行器**：安全的命令执行，带超时控制
 - **路径验证器**：确保文件操作的安全性
 
-#### 3. API 服务器 (`server/app.py`)
+#### 3. API 服务器 (`backend/server/app.py`)
 
 - **FastAPI 路由**：RESTful API 设计
 - **SSE 流式响应**：实时推送 AI 回复和工具调用结果
@@ -453,7 +458,14 @@ API：
 ```json
 {
   "message": "查看系统信息",
-  "model": "openai/gpt-4o-mini"  // 可选，不指定则使用默认模型
+  "model": "openai/gpt-4o-mini",  // 可选，不指定则使用默认模型
+  "attachments": [
+    {
+      "file_id": "上传接口返回的文件ID",
+      "filename": "report.pdf",
+      "content_type": "application/pdf"
+    }
+  ]
 }
 ```
 
@@ -480,6 +492,26 @@ data: "错误信息"
 - `tool_result`: 工具执行结果
 - `error`: 错误信息
 
+### POST /api/files
+
+上传附件文件（图片/文档）并返回文件标识。
+
+**请求**:
+- `multipart/form-data`
+- 字段名：`file`
+
+**响应**:
+```json
+{
+  "id": "file_id",
+  "filename": "report.pdf",
+  "content_type": "application/pdf",
+  "path": "/app/backend_data/uploads/...",
+  "size": 12345,
+  "created_at": 1730000000000
+}
+```
+
 ### GET /health
 
 健康检查端点，返回服务状态。
@@ -502,7 +534,7 @@ FastAPI 自动生成的 API 文档（Swagger UI）。
 
 ### 添加新工具
 
-1. 在 `src/agent/tools/mac_tools.py` 中创建工具类：
+1. 在 `backend/agent/tools/mac_tools.py` 中创建工具类：
 
 ```python
 @dataclass
@@ -551,9 +583,28 @@ def build_default_tools() -> list[Any]:
 {"ok": False, "error": "错误描述"}
 ```
 
+### 测试
+
+后端 API 测试目录结构：
+
+```
+backend/tests/
+├── conftest.py
+└── api/
+    ├── test_health.py
+    ├── test_sessions.py
+    └── test_chat.py
+```
+
+运行测试：
+
+```bash
+pytest backend/tests
+```
+
 ### 添加新模型
 
-在 `src/agent/core/config.py` 中的 `ALLOWED_MODELS` 列表添加新模型：
+在 `backend/agent/core/config.py` 中的 `ALLOWED_MODELS` 列表添加新模型：
 
 ```python
 ALLOWED_MODELS = [
@@ -564,7 +615,7 @@ ALLOWED_MODELS = [
 
 ### 修改系统提示词
 
-编辑 `src/server/app.py` 中的 `SYSTEM_PROMPT` 变量：
+编辑 `backend/server/app.py` 中的 `SYSTEM_PROMPT` 变量：
 
 ```python
 SYSTEM_PROMPT = """你是一个专业的 macOS 智能助手...

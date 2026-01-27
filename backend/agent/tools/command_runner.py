@@ -1,3 +1,5 @@
+# File: backend/agent/tools/command_runner.py
+# Purpose: Execute system commands with timeout control.
 import subprocess
 from typing import Sequence
 

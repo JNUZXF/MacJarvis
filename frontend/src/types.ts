@@ -42,3 +42,9 @@ export interface UserPathsResponse {
   user_id: string;
   paths: string[];
 }
+
+export interface ChatAttachment {
+  file_id: string;
+  filename: string;
+  content_type?: string | null;
+}

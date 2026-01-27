@@ -18,10 +18,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制源代码
-COPY src/ ./src/
+COPY backend/ ./backend/
 
 # 设置工作目录
-WORKDIR /app/src/server
+WORKDIR /app/backend/server
 
 # 暴露端口
 EXPOSE 8000
