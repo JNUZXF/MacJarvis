@@ -1,10 +1,13 @@
 # File: backend/agent/core/agent.py
 # Purpose: Provide the core agent loop with streaming, tools, and context injection.
 import json
+import logging
 from typing import Any, Iterator, Literal, TypedDict, Union
 
 from agent.core.client import OpenAIClient
 from agent.tools.registry import ToolRegistry
+
+logger = logging.getLogger("mac_agent.agent")
 
 
 class ContentEvent(TypedDict):
@@ -120,16 +123,24 @@ class Agent:
                 arguments_text = function.get("arguments", "{}")
                 tool_call_id = call.get("id", "")
 
+                # 添加日志：记录原始参数
+                logger.debug(f"Tool call: {name}, raw arguments: {arguments_text[:200]}")
+
                 try:
                     args = json.loads(arguments_text) if arguments_text else {}
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse tool arguments for {name}: {e}, raw: {arguments_text[:200]}")
                     args = {}
-                    result = {"ok": False, "error": "Invalid JSON arguments"}
+                    result = {"ok": False, "error": f"Invalid JSON arguments: {str(e)}"}
                 else:
+                    # 添加日志：记录解析后的参数
+                    logger.debug(f"Parsed args for {name}: {json.dumps(args, ensure_ascii=False)[:200]}")
                     yield {"type": "tool_start", "tool_call_id": tool_call_id, "name": name, "args": args}
                     try:
                         result = self.registry.execute(name, args)
+                        logger.debug(f"Tool {name} execution result: ok={result.get('ok', False)}")
                     except Exception as exc:
+                        logger.error(f"Tool {name} execution failed: {type(exc).__name__}: {str(exc)}")
                         result = {
                             "ok": False,
                             "error": str(exc),

@@ -1,10 +1,15 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
+import rehypeHighlight from 'rehype-highlight';
+import rehypeRaw from 'rehype-raw';
 import { Sparkles } from 'lucide-react';
 import type { Message, MessageBlock } from '../types';
 import { ToolCallDisplay } from './ToolCallDisplay';
 import clsx from 'clsx';
+import '../styles/markdown.css';
+import 'highlight.js/styles/atom-one-dark.css';
 
 interface ChatMessageProps {
   message: Message;
@@ -51,9 +56,25 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                 return (
                   <div
                     key={`content-${index}`}
-                    className="prose prose-sm max-w-none text-[#2c241d] prose-headings:text-[#2c241d] prose-p:text-[#4a3f35] prose-strong:text-[#2c241d] prose-code:text-[#d4af37] prose-pre:bg-[#f5efe1] prose-pre:border prose-pre:border-[#e8dcc4]"
+                    className="markdown-content"
                   >
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown 
+                      remarkPlugins={[remarkGfm, remarkBreaks]}
+                      rehypePlugins={[rehypeRaw, rehypeHighlight]}
+                      components={{
+                        // 自定义组件以支持更多功能
+                        a: ({ ...props }) => {
+                          // 移除 node 属性避免循环引用
+                          const { node, ...restProps } = props as any;
+                          return <a {...restProps} target="_blank" rel="noopener noreferrer" />;
+                        },
+                        // 支持任务列表
+                        input: ({ ...props }) => {
+                          const { node, ...restProps } = props as any;
+                          return <input {...restProps} disabled={restProps.type === 'checkbox'} />;
+                        },
+                      }}
+                    >
                       {block.content}
                     </ReactMarkdown>
                   </div>

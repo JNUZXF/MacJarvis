@@ -13,10 +13,17 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Union
 
 from agent.tools.command_runner import CommandRunner
 from agent.tools.validators import ensure_path_allowed, normalize_path
+from agent.tools.env_detector import (
+    get_network_info_command,
+    get_dns_info_command,
+    get_wifi_info_command,
+    get_open_ports_command,
+    get_ping_command,
+)
 
 
 @dataclass
@@ -24,12 +31,17 @@ class SimpleCommandTool:
     name: str
     description: str
     parameters: dict[str, Any]
-    command: list[str]
+    command: Union[list[str], Callable[[], list[str]]]
     timeout_s: int = 30
 
     def execute(self, args: dict[str, Any]) -> dict[str, Any]:
         runner = CommandRunner(timeout_s=self.timeout_s)
-        result = runner.run(self.command)
+        # 如果command是可调用对象，则调用它获取命令
+        if callable(self.command):
+            cmd = self.command()
+        else:
+            cmd = self.command
+        result = runner.run(cmd)
         return result
 
 
@@ -46,10 +58,10 @@ class SystemInfoTool:
     def execute(self, args: dict[str, Any]) -> dict[str, Any]:
         runner = CommandRunner(timeout_s=30)
         parts = {
-            "sw_vers": runner.run(["sw_vers"]),
-            "uname": runner.run(["uname", "-a"]),
-            "cpu": runner.run(["sysctl", "-n", "machdep.cpu.brand_string"]),
-            "mem_bytes": runner.run(["sysctl", "-n", "hw.memsize"]),
+            "sw_vers": runner.run(["/usr/bin/sw_vers"]),
+            "uname": runner.run(["/usr/bin/uname", "-a"]),
+            "cpu": runner.run(["/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"]),
+            "mem_bytes": runner.run(["/usr/sbin/sysctl", "-n", "hw.memsize"]),
         }
         return {"ok": True, "data": parts}
 
@@ -71,7 +83,7 @@ class TopProcessesTool:
     def execute(self, args: dict[str, Any]) -> dict[str, Any]:
         limit = int(args.get("limit", 10))
         runner = CommandRunner(timeout_s=20)
-        result = runner.run(["ps", "-axo", "pid,pcpu,pmem,comm"])
+        result = runner.run(["/bin/ps", "-axo", "pid,pcpu,pmem,comm"])
         if not result.get("ok"):
             return result
         lines = result.get("stdout", "").splitlines()
@@ -411,7 +423,7 @@ class OpenAppTool:
         if not app_name:
             return {"ok": False, "error": "app_name is required"}
         runner = CommandRunner(timeout_s=10)
-        return runner.run(["open", "-a", app_name])
+        return runner.run(["/usr/bin/open", "-a", app_name])
 
 
 @dataclass
@@ -433,7 +445,7 @@ class OpenUrlTool:
         if not url:
             return {"ok": False, "error": "url is required"}
         runner = CommandRunner(timeout_s=10)
-        return runner.run(["open", url])
+        return runner.run(["/usr/bin/open", url])
 
 
 # ============================================================================
@@ -858,7 +870,7 @@ class CaptureScreenshotTool:
             output_path = normalize_path(output_path_str)
             ensure_path_allowed(output_path)
 
-            cmd = ["screencapture"]
+            cmd = ["/usr/sbin/screencapture"]
 
             if interactive:
                 cmd.append("-i")  # 交互式选择
@@ -915,7 +927,7 @@ class GetVideoInfoTool:
             runner = CommandRunner(timeout_s=30)
             result = runner.run(
                 [
-                    "ffprobe",
+                    "/usr/local/bin/ffprobe",
                     "-v",
                     "quiet",
                     "-print_format",
@@ -984,12 +996,12 @@ class GitStatusTool:
             runner = CommandRunner(timeout_s=30)
 
             # 切换到仓库目录并执行git status
-            result = runner.run(["git", "-C", str(repo_path), "status", "--short"])
+            result = runner.run(["/usr/bin/git", "-C", str(repo_path), "status", "--short"])
 
             if result.get("ok"):
                 # 同时获取分支信息
                 branch_result = runner.run(
-                    ["git", "-C", str(repo_path), "branch", "--show-current"]
+                    ["/usr/bin/git", "-C", str(repo_path), "branch", "--show-current"]
                 )
 
                 return {
@@ -1041,7 +1053,7 @@ class GitLogTool:
             runner = CommandRunner(timeout_s=30)
             result = runner.run(
                 [
-                    "git",
+                    "/usr/bin/git",
                     "-C",
                     str(repo_path),
                     "log",
@@ -1099,7 +1111,7 @@ class RunPythonScriptTool:
             if not script_path.exists():
                 return {"ok": False, "error": "脚本文件不存在"}
 
-            cmd = ["python3", str(script_path)] + script_args
+            cmd = ["/usr/bin/python3", str(script_path)] + script_args
 
             if working_dir:
                 wd_path = normalize_path(working_dir)
@@ -1328,7 +1340,7 @@ class ClipboardOperationsTool:
             runner = CommandRunner(timeout_s=10)
 
             if operation == "read":
-                result = runner.run(["pbpaste"])
+                result = runner.run(["/usr/bin/pbpaste"])
                 if result.get("ok"):
                     return {
                         "ok": True,
@@ -1343,7 +1355,7 @@ class ClipboardOperationsTool:
 
                 # 使用echo + pbcopy
                 proc = subprocess.run(
-                    ["pbcopy"],
+                    ["/usr/bin/pbcopy"],
                     input=content.encode("utf-8"),
                     capture_output=True,
                     timeout=10,
@@ -1440,7 +1452,7 @@ class SpotlightSearchTool:
 
         try:
             runner = CommandRunner(timeout_s=30)
-            result = runner.run(["mdfind", "-limit", str(limit), query])
+            result = runner.run(["/usr/bin/mdfind", "-limit", str(limit), query])
 
             if result.get("ok"):
                 files = result.get("stdout", "").strip().split("\n")
@@ -1489,7 +1501,7 @@ class DownloadFileTool:
             ensure_path_allowed(output_path)
 
             runner = CommandRunner(timeout_s=300)
-            result = runner.run(["curl", "-L", "-o", str(output_path), url])
+            result = runner.run(["/usr/bin/curl", "-L", "-o", str(output_path), url])
 
             if result.get("ok"):
                 size = output_path.stat().st_size if output_path.exists() else 0
@@ -1529,7 +1541,7 @@ class CheckWebsiteStatusTool:
         try:
             runner = CommandRunner(timeout_s=30)
             result = runner.run(
-                ["curl", "-I", "-s", "-o", "/dev/null", "-w", "%{http_code}", url]
+                ["/usr/bin/curl", "-I", "-s", "-o", "/dev/null", "-w", "%{http_code}", url]
             )
 
             if result.get("ok"):
@@ -1578,7 +1590,8 @@ class PingHostTool:
 
         try:
             runner = CommandRunner(timeout_s=30)
-            result = runner.run(["ping", "-c", str(count), host])
+            ping_cmd = get_ping_command()
+            result = runner.run(ping_cmd + ["-c", str(count), host])
 
             if result.get("ok"):
                 return {"ok": True, "data": {"output": result.get("stdout", "")}}
@@ -1818,7 +1831,7 @@ class TimezoneConverterTool:
                 # 使用系统命令获取时区时间
                 runner = CommandRunner(timeout_s=10)
                 tz_result = runner.run(
-                    ["TZ=" + target_tz, "date", "+%Y-%m-%dT%H:%M:%S%z"]
+                    ["TZ=" + target_tz, "/bin/date", "+%Y-%m-%dT%H:%M:%S%z"]
                 )
                 if tz_result.get("ok"):
                     result_data["target_timezone_time"] = tz_result.get("stdout", "").strip()
@@ -1840,19 +1853,19 @@ def build_default_tools() -> list[Any]:
             name="disk_usage",
             description="查看磁盘空间使用情况",
             parameters={"type": "object", "properties": {}, "required": []},
-            command=["df", "-h"],
+            command=["/bin/df", "-h"],
         ),
         SimpleCommandTool(
             name="battery_status",
             description="查看电源与电池状态",
             parameters={"type": "object", "properties": {}, "required": []},
-            command=["pmset", "-g", "batt"],
+            command=["/usr/bin/pmset", "-g", "batt"],
         ),
         SimpleCommandTool(
             name="system_sleep_settings",
             description="查看睡眠与电源策略",
             parameters={"type": "object", "properties": {}, "required": []},
-            command=["pmset", "-g"],
+            command=["/usr/bin/pmset", "-g"],
         ),
         # ============================================================
         # 进程管理工具 (Process Management)
@@ -1861,7 +1874,7 @@ def build_default_tools() -> list[Any]:
             name="process_list",
             description="列出当前进程",
             parameters={"type": "object", "properties": {}, "required": []},
-            command=["ps", "aux"],
+            command=["/bin/ps", "aux"],
         ),
         TopProcessesTool(),
         # ============================================================
@@ -1871,25 +1884,25 @@ def build_default_tools() -> list[Any]:
             name="open_ports",
             description="列出监听端口",
             parameters={"type": "object", "properties": {}, "required": []},
-            command=["lsof", "-nP", "-iTCP", "-sTCP:LISTEN"],
+            command=get_open_ports_command,
         ),
         SimpleCommandTool(
             name="network_info",
             description="获取网络接口信息",
             parameters={"type": "object", "properties": {}, "required": []},
-            command=["ifconfig"],
+            command=get_network_info_command,
         ),
         SimpleCommandTool(
             name="dns_info",
             description="获取 DNS 配置",
             parameters={"type": "object", "properties": {}, "required": []},
-            command=["scutil", "--dns"],
+            command=get_dns_info_command,
         ),
         SimpleCommandTool(
             name="wifi_info",
             description="获取当前 Wi-Fi 连接信息",
             parameters={"type": "object", "properties": {}, "required": []},
-            command=["networksetup", "-getairportnetwork", "en0"],
+            command=get_wifi_info_command,
         ),
         DownloadFileTool(),
         CheckWebsiteStatusTool(),
@@ -1954,6 +1967,6 @@ def build_default_tools() -> list[Any]:
             name="list_applications",
             description="列出 /Applications 下的应用",
             parameters={"type": "object", "properties": {}, "required": []},
-            command=["/bin/ls", "/Applications"],
+            command=["/bin/ls", "-1", "/Applications"],
         ),
     ]

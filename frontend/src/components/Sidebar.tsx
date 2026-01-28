@@ -41,7 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="w-full py-3 px-4 rounded-xl bg-[#f5efe1] border border-[#d4af37]/30 flex items-center justify-center gap-2 hover:bg-[#eaddc0] transition-all group shadow-sm"
         >
           <Plus className="w-4 h-4 text-[#d4af37] group-hover:rotate-90 transition-transform" />
-          <span className="text-sm font-semibold">开启新篇章</span>
+          <span className="text-sm font-semibold">新建聊天</span>
         </button>
       </div>
 

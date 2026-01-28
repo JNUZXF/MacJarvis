@@ -577,7 +577,7 @@ function App() {
         userId={userId}
         sessions={sessions}
         activeSessionId={activeSessionId}
-        onCreateSession={createSession}
+        onCreateSession={() => createSession()}
         onLoadSession={loadSession}
         onSettingsClick={() => setIsSettingsOpen(true)}
       />
@@ -694,9 +694,6 @@ function App() {
               </div>
             </div>
           </form>
-          <p className="text-center mt-4 text-[10px] opacity-40 uppercase tracking-widest text-[#a08b73]">
-            AI 并非万能，请保持理性思考
-          </p>
         </footer>
       </main>
 

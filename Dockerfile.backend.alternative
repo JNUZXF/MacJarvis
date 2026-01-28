@@ -1,14 +1,19 @@
-# 后端 Dockerfile
+# 后端 Dockerfile (备用版本 - 使用国内镜像源)
 # 功能：构建 MacJarvis 后端服务镜像
 # 路径：项目根目录
+# 使用说明：如果默认Dockerfile构建失败，可以尝试使用此版本
 
 FROM python:3.12-slim
 
 WORKDIR /app
 
+# 使用国内镜像源（可选，如果网络有问题）
+# RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources || \
+#     echo "deb http://mirrors.aliyun.com/debian/ bookworm main" > /etc/apt/sources.list && \
+#     echo "deb http://mirrors.aliyun.com/debian/ bookworm-updates main" >> /etc/apt/sources.list
+
 # 安装系统依赖和网络工具
-# 使用重试机制和--fix-missing来处理网络问题
-# 注意：如果网络连接有问题，可能需要配置代理或使用国内镜像源
+# 只安装必要的工具，使用重试机制
 RUN apt-get update && \
     apt-get install -y --fix-missing --no-install-recommends \
     gcc \
