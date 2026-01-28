@@ -10,7 +10,9 @@ import uuid
 from dataclasses import replace
 from pathlib import Path
 import threading
-from typing import Iterator
+from typing import Iterator, Dict, Optional
+from contextlib import contextmanager
+from functools import lru_cache
 
 from fastapi import FastAPI, Request, status, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,6 +49,98 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(handler)
 logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
+
+
+# ============================================================================
+# Performance Monitoring Tools
+# ============================================================================
+
+@contextmanager
+def measure_time(stage_name: str, context: dict):
+    """
+    Context manager to measure execution time of a code block.
+    Records the elapsed time in milliseconds to the provided context dict.
+    
+    Usage:
+        timings = {}
+        with measure_time("database_query", timings):
+            # ... code to measure ...
+        print(f"Took {timings['database_query']:.2f}ms")
+    """
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        context[stage_name] = elapsed_ms
+        logger.debug(f"⏱️  {stage_name}: {elapsed_ms:.2f}ms")
+
+
+# ============================================================================
+# LLM Client Pool for Connection Reuse
+# ============================================================================
+
+class ClientPool:
+    """
+    Thread-safe pool for managing and reusing OpenAI client instances.
+    Clients are cached based on their configuration (base_url, model, proxy).
+    This avoids recreating HTTP connection pools on every request.
+    """
+    
+    def __init__(self, max_size: int = 50):
+        self._pool: Dict[str, OpenAIClient] = {}
+        self._lock = threading.Lock()
+        self._max_size = max_size
+        self._access_order: list[str] = []  # Track access order for LRU eviction
+    
+    def get_client(self, config) -> OpenAIClient:
+        """
+        Get or create a client for the given configuration.
+        Returns cached client if available, otherwise creates a new one.
+        """
+        key = self._make_key(config)
+        
+        with self._lock:
+            if key in self._pool:
+                # Move to end of access order (most recently used)
+                if key in self._access_order:
+                    self._access_order.remove(key)
+                self._access_order.append(key)
+                logger.debug(f"♻️  Reusing cached LLM client: {key[:50]}...")
+                return self._pool[key]
+            
+            # Create new client
+            if len(self._pool) >= self._max_size:
+                # Evict least recently used client
+                lru_key = self._access_order.pop(0)
+                del self._pool[lru_key]
+                logger.debug(f"🗑️  Evicted LRU client: {lru_key[:50]}...")
+            
+            logger.debug(f"🆕 Creating new LLM client: {key[:50]}...")
+            client = OpenAIClient(config)
+            self._pool[key] = client
+            self._access_order.append(key)
+            return client
+    
+    def _make_key(self, config) -> str:
+        """Generate cache key from config parameters."""
+        return f"{config.base_url}|{config.model}|{config.http_proxy or ''}|{config.https_proxy or ''}"
+    
+    def clear(self):
+        """Clear all cached clients."""
+        with self._lock:
+            self._pool.clear()
+            self._access_order.clear()
+            logger.info("🧹 Cleared client pool")
+    
+    def stats(self) -> dict:
+        """Get pool statistics."""
+        with self._lock:
+            return {
+                "size": len(self._pool),
+                "max_size": self._max_size,
+                "keys": list(self._pool.keys())
+            }
 
 
 def now_ms() -> int:
@@ -157,15 +251,35 @@ def normalize_user_paths(raw_paths: list[str]) -> list[str]:
     return normalized
 
 
-def get_user_paths(user_id: str) -> list[str]:
+@lru_cache(maxsize=128)
+def _get_user_paths_cached(user_id: str, cache_key: int) -> tuple[str, ...]:
+    """
+    Internal cached function for user paths lookup.
+    cache_key is the modification time of the user_paths file.
+    Returns tuple (immutable) for caching compatibility.
+    """
     with USER_PATHS_LOCK:
         store = load_user_paths_store()
         users = store.get("users", {})
         if isinstance(users, dict):
             paths = users.get(user_id, [])
             if isinstance(paths, list):
-                return [str(item) for item in paths]
-    return []
+                return tuple(str(item) for item in paths)
+    return tuple()
+
+
+def get_user_paths(user_id: str) -> list[str]:
+    """
+    Get user paths with LRU caching.
+    Cache is invalidated when user_paths.json is modified.
+    """
+    # Use file modification time as cache key
+    cache_key = 0
+    if USER_PATHS_FILE.exists():
+        cache_key = int(USER_PATHS_FILE.stat().st_mtime * 1000)
+    
+    cached_paths = _get_user_paths_cached(user_id, cache_key)
+    return list(cached_paths)
 
 
 def set_user_paths(user_id: str, paths: list[str]) -> list[str]:
@@ -423,12 +537,19 @@ try:
     config = load_openai_config()
     registry = ToolRegistry(build_default_tools())
 
-    memory_manager = MemoryManager(
-        short_term=ShortTermMemory(window_size=MEMORY_WINDOW_SIZE, ttl_s=MEMORY_TTL_S),
-        episodic=EpisodicMemory(MEMORY_DB_PATH),
-        semantic=SemanticMemory(MEMORY_DB_PATH, embedding_config=config, embedding_model=EMBEDDING_MODEL),
-        context_max_chars=MEMORY_CONTEXT_MAX_CHARS,
-    )
+    # Initialize memory manager (can be disabled for performance)
+    DISABLE_MEMORY = os.getenv("DISABLE_MEMORY_MANAGER", "false").lower() == "true"
+    if DISABLE_MEMORY:
+        memory_manager = None
+        logger.info("⚠️  Memory manager disabled (DISABLE_MEMORY_MANAGER=true)")
+    else:
+        memory_manager = MemoryManager(
+            short_term=ShortTermMemory(window_size=MEMORY_WINDOW_SIZE, ttl_s=MEMORY_TTL_S),
+            episodic=EpisodicMemory(MEMORY_DB_PATH),
+            semantic=SemanticMemory(MEMORY_DB_PATH, embedding_config=config, embedding_model=EMBEDDING_MODEL),
+            context_max_chars=MEMORY_CONTEXT_MAX_CHARS,
+        )
+        logger.info("✅ Memory manager initialized")
 
     BASE_SYSTEM_PROMPT = """你是一个专业的 macOS 智能助手，可以帮助用户管理系统、排查问题、执行自动化任务。
 你可以使用提供的工具来获取信息或执行操作。
@@ -436,12 +557,61 @@ try:
 请用中文回复用户。
 """
 
+    # Initialize global client pool
+    client_pool = ClientPool(max_size=50)
+    logger.info("✅ Initialized LLM client pool")
+
 except Exception as e:
     print(f"Warning: Agent initialization failed: {e}")
     config = None
     registry = None
     memory_manager = None
     BASE_SYSTEM_PROMPT = ""
+    client_pool = None
+
+
+# ============================================================================
+# Application Warmup
+# ============================================================================
+
+def warmup_on_startup():
+    """
+    Warmup function to initialize critical resources on application startup.
+    This reduces first-request latency by pre-initializing connection pools.
+    """
+    logger.info("🔥 Starting application warmup...")
+    warmup_start = time.perf_counter()
+    
+    try:
+        # 1. Warmup LLM client pool with default config
+        if config and client_pool:
+            default_client = client_pool.get_client(config)
+            logger.info("  ✓ Warmed up default LLM client")
+        
+        # 2. Ensure data directories exist
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        logger.info("  ✓ Verified data directories")
+        
+        # 3. Pre-load user paths file into cache (if exists)
+        if USER_PATHS_FILE.exists():
+            _ = load_user_paths_store()
+            logger.info("  ✓ Pre-loaded user paths configuration")
+        
+        # 4. Test database connection (if memory manager exists)
+        if memory_manager:
+            # Memory manager already initialized, connections ready
+            logger.info("  ✓ Memory manager initialized")
+        
+        warmup_elapsed = (time.perf_counter() - warmup_start) * 1000
+        logger.info(f"🎉 Application warmup completed in {warmup_elapsed:.2f}ms")
+        
+    except Exception as e:
+        logger.warning(f"⚠️  Warmup encountered error (non-fatal): {e}")
+
+
+# Run warmup on module load
+warmup_on_startup()
 
 
 class ChatAttachment(BaseModel):
@@ -483,6 +653,47 @@ class ProxyConfigRequest(BaseModel):
 async def health_check():
     """健康检查端点"""
     return {"status": "ok", "service": "macjarvis-backend"}
+
+
+@app.get("/api/debug/client-pool")
+async def debug_client_pool():
+    """
+    Debug endpoint to view client pool statistics.
+    Shows cached clients and pool usage.
+    """
+    if not client_pool:
+        return {"error": "Client pool not initialized"}
+    
+    stats = client_pool.stats()
+    return {
+        "pool_size": stats["size"],
+        "max_size": stats["max_size"],
+        "cached_clients": [key[:100] for key in stats["keys"]],  # Truncate for readability
+    }
+
+
+@app.post("/api/debug/clear-cache")
+async def debug_clear_cache():
+    """
+    Debug endpoint to clear all caches.
+    Useful for testing and troubleshooting.
+    """
+    cleared = []
+    
+    # Clear client pool
+    if client_pool:
+        client_pool.clear()
+        cleared.append("client_pool")
+    
+    # Clear user paths cache
+    _get_user_paths_cached.cache_clear()
+    cleared.append("user_paths_cache")
+    
+    return {
+        "status": "ok",
+        "cleared": cleared,
+        "message": "All caches cleared successfully"
+    }
 
 
 @app.post("/api/files")
@@ -606,7 +817,11 @@ async def set_user_proxy_config(request: ProxyConfigRequest):
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
-    if not config or not registry:
+    # Performance monitoring context
+    timings = {}
+    request_start = time.perf_counter()
+    
+    if not config or not registry or not client_pool:
         return add_sse_headers(StreamingResponse(
             iter([f"event: error\ndata: {json.dumps('Agent not initialized')}\n\n"]),
             media_type="text/event-stream"
@@ -619,46 +834,76 @@ async def chat_endpoint(request: ChatRequest):
             media_type="text/event-stream"
         ))
 
-    user_id, user_state = get_or_create_user(request.user_id)
-    session_id = ensure_session(user_state, request.session_id)
-    session = user_state["sessions"][session_id]
-    user_state["active_session_id"] = session_id
-    user_paths = get_user_paths(user_id)
-
-    # 获取用户的代理配置并应用
-    proxy_config = user_state.get("proxy_config", {})
-    request_config = with_model(config, selected_model)
+    # Stage 1: User and session management
+    with measure_time("user_session_setup", timings):
+        user_id, user_state = get_or_create_user(request.user_id)
+        session_id = ensure_session(user_state, request.session_id)
+        session = user_state["sessions"][session_id]
+        user_state["active_session_id"] = session_id
     
-    # 如果用户配置了代理,覆盖默认配置
-    if proxy_config.get("http_proxy") or proxy_config.get("https_proxy"):
-        from dataclasses import replace
-        request_config = replace(
-            request_config,
-            http_proxy=proxy_config.get("http_proxy"),
-            https_proxy=proxy_config.get("https_proxy"),
-        )
-    
-    client = OpenAIClient(request_config)
-    system_prompt = build_system_prompt(user_paths)
-    agent = Agent(client, registry, system_prompt)
+    # Stage 2: Load user paths (with caching)
+    with measure_time("load_user_paths", timings):
+        user_paths = get_user_paths(user_id)
 
-    attachments = [item.model_dump() for item in (request.attachments or [])]
-    attachment_context, image_parts = build_attachment_context(attachments)
+    # Stage 3: Get proxy config and prepare request config
+    with measure_time("prepare_config", timings):
+        proxy_config = user_state.get("proxy_config", {})
+        request_config = with_model(config, selected_model)
+        
+        # 如果用户配置了代理,覆盖默认配置
+        if proxy_config.get("http_proxy") or proxy_config.get("https_proxy"):
+            from dataclasses import replace
+            request_config = replace(
+                request_config,
+                http_proxy=proxy_config.get("http_proxy"),
+                https_proxy=proxy_config.get("https_proxy"),
+            )
+    
+    # Stage 4: Get or create LLM client (with connection pool reuse)
+    with measure_time("get_llm_client", timings):
+        client = client_pool.get_client(request_config)
+    
+    # Stage 5: Build system prompt
+    with measure_time("build_system_prompt", timings):
+        system_prompt = build_system_prompt(user_paths)
+    
+    # Stage 6: Initialize agent
+    with measure_time("init_agent", timings):
+        agent = Agent(client, registry, system_prompt)
+
+    # Stage 7: Process attachments
+    with measure_time("process_attachments", timings):
+        attachments = [item.model_dump() for item in (request.attachments or [])]
+        attachment_context, image_parts = build_attachment_context(attachments)
+    
+    # Stage 8: Build memory context (if enabled)
     memory_context = ""
     if memory_manager:
-        memory_context = memory_manager.build_context(user_id, session_id, request.message)
+        with measure_time("build_memory_context", timings):
+            memory_context = memory_manager.build_context(user_id, session_id, request.message)
 
-    extra_system_parts = [part for part in [memory_context, attachment_context] if part]
-    extra_system_prompt = "\n\n".join(extra_system_parts).strip()
+    # Stage 9: Prepare extra system prompt
+    with measure_time("prepare_extra_prompt", timings):
+        extra_system_parts = [part for part in [memory_context, attachment_context] if part]
+        extra_system_prompt = "\n\n".join(extra_system_parts).strip()
 
-    if image_parts:
-        user_content = [{"type": "text", "text": request.message}, *image_parts]
-    else:
-        user_content = request.message
+        if image_parts:
+            user_content = [{"type": "text", "text": request.message}, *image_parts]
+        else:
+            user_content = request.message
+    
+    # Calculate total preparation time
+    prep_time = (time.perf_counter() - request_start) * 1000
+    timings["total_preparation"] = prep_time
 
     def event_generator() -> Iterator[str]:
         # 立即发送 SSE 注释，避免客户端等待首包超时
         yield ": ping\n\n"
+        
+        # Track first token time
+        first_token_time = None
+        agent_start_time = time.perf_counter()
+        
         token = set_runtime_allowed_roots([Path(path) for path in user_paths])
         try:
             message_title = create_session_title(request.message)
@@ -674,6 +919,7 @@ async def chat_endpoint(request: ChatRequest):
             if memory_manager:
                 memory_manager.record_message(session_id, "user", request.message)
 
+            # Log performance metrics
             log_event(
                 logging.INFO,
                 "chat_start",
@@ -681,13 +927,32 @@ async def chat_endpoint(request: ChatRequest):
                 session_id=session_id,
                 model=selected_model,
                 message_length=len(request.message),
+                timings=timings,
             )
+            
             for event in agent.run_stream(
                 user_content,
                 request_config.max_tool_turns,
                 extra_system_prompt=extra_system_prompt if extra_system_prompt else None,
             ):
                 if event["type"] == "content":
+                    # Record first token time
+                    if first_token_time is None:
+                        first_token_time = (time.perf_counter() - agent_start_time) * 1000
+                        timings["first_token"] = first_token_time
+                        timings["time_to_first_token"] = (time.perf_counter() - request_start) * 1000
+                        
+                        # Log first token metrics
+                        log_event(
+                            logging.INFO,
+                            "first_token",
+                            user_id=user_id,
+                            session_id=session_id,
+                            first_token_ms=round(first_token_time, 2),
+                            time_to_first_token_ms=round(timings["time_to_first_token"], 2),
+                            preparation_ms=round(prep_time, 2),
+                        )
+                    
                     # Using json.dumps to handle escaping newlines etc.
                     assistant_message["content"] += event["content"]
                     session["updatedAt"] = now_ms()
