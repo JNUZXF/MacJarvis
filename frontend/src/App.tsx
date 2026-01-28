@@ -2,11 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Send, 
   Terminal as TerminalIcon,
-  Plus,
-  MessageSquare,
   Paperclip,
-  Settings,
-  BookOpen,
   Scroll,
   Sparkles,
   FileText,
@@ -16,6 +12,8 @@ import {
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import type { Message, ToolCall, ChatSession, ChatAttachment } from './types';
 import { ChatMessage } from './components/ChatMessage';
+import { Sidebar } from './components/Sidebar';
+import { Settings } from './components/Settings';
 import { v4 as uuidv4 } from 'uuid';
 
 const modelOptions = [
@@ -61,7 +59,6 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [model, setModel] = useState(modelOptions[0].value);
   const [userPaths, setUserPaths] = useState<string[]>([]);
-  const [pathInput, setPathInput] = useState('');
   const [pathError, setPathError] = useState('');
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -69,6 +66,7 @@ function App() {
   const [httpProxy, setHttpProxy] = useState('');
   const [httpsProxy, setHttpsProxy] = useState('');
   const [proxyError, setProxyError] = useState('');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [artifacts] = useState<Artifact[]>([
     { id: 1, title: '系统诊断报告 v1.0', type: 'scroll', date: new Date().toLocaleDateString('zh-CN') },
     { id: 2, title: '自动化脚本集合', type: 'code', date: new Date().toLocaleDateString('zh-CN') }
@@ -496,21 +494,6 @@ function App() {
     }
   };
 
-  const handleAddPath = async () => {
-    const nextPath = pathInput.trim();
-    if (!nextPath) return;
-    await saveUserPaths([...userPaths, nextPath]);
-    setPathInput('');
-  };
-
-  const handleRemovePath = async (path: string) => {
-    await saveUserPaths(userPaths.filter((item) => item !== path));
-  };
-
-  const handleQuickAdd = async (path: string) => {
-    await saveUserPaths([...userPaths, path]);
-  };
-
   const uploadFile = async (file: File): Promise<ChatAttachment | null> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -589,158 +572,15 @@ function App() {
         ))}
       </div>
 
-      {/* 左侧：历史记忆区 */}
-      <aside className="w-72 flex flex-col z-10 border-r border-[#e8dcc4] bg-white/20 backdrop-blur-2xl">
-        <div className="p-6 flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-[#d4af37] to-[#aa8c2c] rounded-full flex items-center justify-center shadow-lg">
-            <BookOpen className="text-white w-5 h-5" />
-          </div>
-          <h1 className="text-xl font-bold tracking-tight text-[#2c241d] italic">MacAgent</h1>
-        </div>
-
-        <div className="px-4 mb-4">
-          <button 
-            type="button"
-            onClick={() => createSession()}
-            className="w-full py-3 px-4 rounded-xl bg-[#f5efe1] border border-[#d4af37]/30 flex items-center justify-center gap-2 hover:bg-[#eaddc0] transition-all group shadow-sm"
-          >
-            <Plus className="w-4 h-4 text-[#d4af37] group-hover:rotate-90 transition-transform" />
-            <span className="text-sm font-semibold">开启新篇章</span>
-          </button>
-        </div>
-
-        <div className="mb-6 px-4">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-[#a08b73] font-bold mb-2">用户信息</div>
-          <div className="text-xs text-[#4a3f35] break-all opacity-70">{userId || '生成中...'}</div>
-        </div>
-
-        <div className="mb-6 px-4">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-[#a08b73] font-bold mb-2">
-            路径白名单
-          </div>
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1">
-              {['~', '~/Desktop', '~/Documents', '~/Downloads'].map((path) => (
-                <button
-                  key={path}
-                  type="button"
-                  onClick={() => handleQuickAdd(path)}
-                  className="text-[11px] px-2 py-1 rounded bg-[#f5efe1] text-[#4a3f35] hover:bg-[#eaddc0] border border-[#e8dcc4]"
-                >
-                  {path}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={pathInput}
-                onChange={(e) => setPathInput(e.target.value)}
-                placeholder="输入绝对路径或~"
-                className="flex-1 px-2 py-1.5 text-xs rounded-lg border border-[#e8dcc4] bg-white/50 text-[#4a3f35] placeholder-[#a08b73]/50 focus:border-[#d4af37] focus:ring-1 focus:ring-[#d4af37]/30 outline-none"
-              />
-              <button
-                type="button"
-                onClick={handleAddPath}
-                className="px-2 py-1.5 text-xs rounded-lg bg-[#d4af37] hover:bg-[#aa8c2c] text-white"
-              >
-                添加
-              </button>
-            </div>
-            {pathError ? (
-              <div className="text-xs text-red-600">{pathError}</div>
-            ) : null}
-            <ul className="space-y-1 text-xs text-[#4a3f35] max-h-32 overflow-y-auto">
-              {userPaths.length === 0 ? (
-                <li className="text-[#a08b73]">未配置</li>
-              ) : (
-                userPaths.map((path) => (
-                  <li key={path} className="flex items-center justify-between gap-2 py-1">
-                    <span className="truncate opacity-70" title={path}>
-                      {path}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemovePath(path)}
-                      className="text-red-400 hover:text-red-600 text-[10px]"
-                    >
-                      移除
-                    </button>
-                  </li>
-                ))
-              )}
-            </ul>
-          </div>
-        </div>
-
-        <div className="mb-6 px-4">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-[#a08b73] font-bold mb-2">
-            代理配置 (可选)
-          </div>
-          <div className="space-y-2">
-            <div className="space-y-2">
-              <input
-                type="text"
-                value={httpProxy}
-                onChange={(e) => setHttpProxy(e.target.value)}
-                placeholder="HTTP代理 (如: http://127.0.0.1:7897)"
-                className="w-full px-2 py-1.5 text-xs rounded-lg border border-[#e8dcc4] bg-white/50 text-[#4a3f35] placeholder-[#a08b73]/50 focus:border-[#d4af37] focus:ring-1 focus:ring-[#d4af37]/30 outline-none"
-              />
-              <input
-                type="text"
-                value={httpsProxy}
-                onChange={(e) => setHttpsProxy(e.target.value)}
-                placeholder="HTTPS代理 (如: http://127.0.0.1:7897)"
-                className="w-full px-2 py-1.5 text-xs rounded-lg border border-[#e8dcc4] bg-white/50 text-[#4a3f35] placeholder-[#a08b73]/50 focus:border-[#d4af37] focus:ring-1 focus:ring-[#d4af37]/30 outline-none"
-              />
-              <button
-                type="button"
-                onClick={saveProxyConfig}
-                className="w-full px-2 py-1.5 text-xs rounded-lg bg-[#d4af37] hover:bg-[#aa8c2c] text-white transition-colors"
-              >
-                保存代理配置
-              </button>
-            </div>
-            {proxyError ? (
-              <div className="text-xs text-red-600">{proxyError}</div>
-            ) : null}
-            <div className="text-[10px] text-[#a08b73] opacity-70 leading-relaxed">
-              💡 配置代理可加速API请求。留空则不使用代理。
-            </div>
-          </div>
-        </div>
-        
-        <nav className="flex-1 overflow-y-auto px-2 space-y-1">
-          <div className="px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-[#a08b73] font-bold">近期回溯</div>
-          {sessions.length === 0 ? (
-            <div className="px-4 py-3 text-sm text-[#a08b73]">暂无会话</div>
-          ) : (
-            sessions.map((session) => (
-              <div
-                key={session.id}
-                className={`group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all hover:bg-[#fcf8ef] ${
-                  session.id === activeSessionId ? 'bg-[#fcf8ef] border-l-4 border-[#d4af37]' : ''
-                }`}
-                onClick={() => loadSession(session.id)}
-              >
-                <MessageSquare className="w-4 h-4 text-[#a08b73]" />
-                <span className="text-sm truncate opacity-80">{session.title || '新会话'}</span>
-              </div>
-            ))
-          )}
-        </nav>
-
-        <div className="p-4 border-t border-[#e8dcc4] flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-200 to-amber-100 flex items-center justify-center text-[10px] text-gray-700 border-2 border-[#d4af37]">
-            MA
-          </div>
-          <div className="flex-1">
-            <p className="text-xs font-bold">MacAgent</p>
-            <p className="text-[10px] opacity-50">智能助手</p>
-          </div>
-          <Settings className="w-4 h-4 opacity-40 hover:opacity-100 cursor-pointer transition-opacity" />
-        </div>
-      </aside>
+      {/* 左侧边栏 - 仅显示历史记录 */}
+      <Sidebar
+        userId={userId}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onCreateSession={createSession}
+        onLoadSession={loadSession}
+        onSettingsClick={() => setIsSettingsOpen(true)}
+      />
 
       {/* 中间：主聊天区域 */}
       <main className="flex-1 flex flex-col z-10 relative">
@@ -775,25 +615,11 @@ function App() {
         {/* 输入区域 */}
         <footer className="p-8 pt-0 bg-transparent">
           <form onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-4">
-            {/* 模型选择和附件上传 */}
+            {/* 附件上传 */}
             <div className="flex gap-3 items-center">
-              <div className="flex-1 flex items-center gap-2">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-[#a08b73]">
-                  模型
-                </label>
-                <select
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="flex-1 px-3 py-2 text-xs rounded-lg border border-[#e8dcc4] bg-white/70 text-[#4a3f35] focus:border-[#d4af37] focus:ring-1 focus:ring-[#d4af37]/30 outline-none transition-all"
-                  disabled={isLoading}
-                >
-                  {modelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-[#a08b73]">
+                附件
+              </label>
               <div className="flex-1">
                 <input
                   type="file"
@@ -960,6 +786,27 @@ function App() {
           </div>
         </div>
       </aside>
+
+      {/* 设置页面 */}
+      <Settings
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        model={model}
+        onModelChange={setModel}
+        modelOptions={modelOptions}
+        userPaths={userPaths}
+        onPathsChange={async (paths) => {
+          setUserPaths(paths);
+          await saveUserPaths(paths);
+        }}
+        pathError={pathError}
+        httpProxy={httpProxy}
+        onHttpProxyChange={setHttpProxy}
+        httpsProxy={httpsProxy}
+        onHttpsProxyChange={setHttpsProxy}
+        proxyError={proxyError}
+        onSaveProxy={saveProxyConfig}
+      />
     </div>
   );
 }
