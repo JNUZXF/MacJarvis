@@ -2,6 +2,31 @@
 
 @layer base {
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-[#fdfbf7] text-[#4a3f35];
+    font-family: 'Georgia', 'Times New Roman', serif;
+  }
+  
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #d4af37 #f5efe1;
+  }
+  
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  *::-webkit-scrollbar-track {
+    background: #f5efe1;
+    border-radius: 4px;
+  }
+  
+  *::-webkit-scrollbar-thumb {
+    background: #d4af37;
+    border-radius: 4px;
+  }
+  
+  *::-webkit-scrollbar-thumb:hover {
+    background: #aa8c2c;
   }
 }

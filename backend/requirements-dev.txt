@@ -1,0 +1,17 @@
+# File: backend/requirements-dev.txt
+# Purpose: Development dependencies
+
+-r requirements.txt
+
+# Development Tools
+ipython==8.29.0
+ipdb==0.13.13
+
+# Testing Tools
+pytest-mock==3.14.0
+pytest-xdist==3.6.1
+faker==33.1.0
+
+# Documentation
+mkdocs==1.6.1
+mkdocs-material==9.5.48

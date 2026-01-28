@@ -1,5 +1,13 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Terminal as TerminalIcon } from 'lucide-react';
+import { 
+  Send, 
+  Terminal as TerminalIcon,
+  Plus,
+  MessageSquare,
+  Paperclip,
+  Settings,
+  BookOpen
+} from 'lucide-react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import type { Message, ToolCall, ChatSession, ChatAttachment } from './types';
 import { ChatMessage } from './components/ChatMessage';
@@ -10,6 +18,27 @@ const modelOptions = [
   { value: 'anthropic/claude-haiku-4.5', label: 'claude-haiku-4.5' },
   { value: 'google/gemini-2.5-flash', label: 'gemini-2.5-flash' },
 ];
+
+// 动画关键帧样式
+const animations = `
+  @keyframes float {
+    0% { transform: translateY(0px) rotate(0deg); }
+    50% { transform: translateY(-20px) rotate(5deg); }
+    100% { transform: translateY(0px) rotate(0deg); }
+  }
+  @keyframes blob-movement {
+    0% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
+    34% { border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%; }
+    67% { border-radius: 100% 60% 60% 100% / 100% 100% 60% 60%; }
+    100% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
+  }
+  @keyframes leaf-fall {
+    0% { transform: translate(0, -10%) rotate(0deg); opacity: 0; }
+    10% { opacity: 0.8; }
+    90% { opacity: 0.8; }
+    100% { transform: translate(100px, 110vh) rotate(360deg); opacity: 0; }
+  }
+`;
 
 function App() {
   const [userId, setUserId] = useState('');
@@ -453,21 +482,70 @@ function App() {
     setAttachments((prev) => prev.filter((item) => item.file_id !== fileId));
   };
 
+  // 背景粒子
+  const particles = Array.from({ length: 15 });
+
   return (
-    <div className="flex h-screen bg-gray-100 font-sans">
-      <div className="hidden md:flex flex-col w-64 bg-gray-900 text-white p-4">
-        <div className="flex items-center gap-2 mb-8 px-2">
-          <TerminalIcon className="w-6 h-6 text-blue-400" />
-          <h1 className="text-xl font-bold tracking-tight">MacAgent</h1>
+    <div className="flex h-screen w-full overflow-hidden bg-[#fdfbf7] font-serif text-[#4a3f35] relative">
+      <style>{animations}</style>
+
+      {/* 魔法动态背景 */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {/* 液态背景块 */}
+        <div 
+          className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-[#f5e6d3] opacity-30 blur-[100px]" 
+          style={{ animation: 'blob-movement 20s infinite alternate linear' }}
+        />
+        <div 
+          className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#e3f2fd] opacity-40 blur-[120px]" 
+          style={{ animation: 'blob-movement 25s infinite alternate-reverse linear' }}
+        />
+        
+        {/* 飘落的粒子 */}
+        {particles.map((_, i) => (
+          <div 
+            key={i}
+            className="absolute bg-white/60 rounded-full blur-[1px]"
+            style={{
+              left: `${Math.random() * 100}%`,
+              width: `${Math.random() * 8 + 4}px`,
+              height: `${Math.random() * 12 + 6}px`,
+              top: '-5%',
+              animation: `leaf-fall ${Math.random() * 10 + 10}s linear infinite`,
+              animationDelay: `${Math.random() * 10}s`,
+              opacity: 0.4
+            }}
+          />
+        ))}
+      </div>
+
+      {/* 左侧：历史记忆区 */}
+      <aside className="w-72 flex flex-col z-10 border-r border-[#e8dcc4] bg-white/20 backdrop-blur-2xl">
+        <div className="p-6 flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-[#d4af37] to-[#aa8c2c] rounded-full flex items-center justify-center shadow-lg">
+            <BookOpen className="text-white w-5 h-5" />
+          </div>
+          <h1 className="text-xl font-bold tracking-tight text-[#2c241d] italic">MacAgent</h1>
         </div>
 
-        <div className="mb-6 px-2">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">User</div>
-          <div className="text-xs text-gray-300 break-all">{userId || '生成中...'}</div>
+        <div className="px-4 mb-4">
+          <button 
+            type="button"
+            onClick={() => createSession()}
+            className="w-full py-3 px-4 rounded-xl bg-[#f5efe1] border border-[#d4af37]/30 flex items-center justify-center gap-2 hover:bg-[#eaddc0] transition-all group shadow-sm"
+          >
+            <Plus className="w-4 h-4 text-[#d4af37] group-hover:rotate-90 transition-transform" />
+            <span className="text-sm font-semibold">开启新篇章</span>
+          </button>
         </div>
 
-        <div className="mb-6 px-2">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+        <div className="mb-6 px-4">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-[#a08b73] font-bold mb-2">用户信息</div>
+          <div className="text-xs text-[#4a3f35] break-all opacity-70">{userId || '生成中...'}</div>
+        </div>
+
+        <div className="mb-6 px-4">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-[#a08b73] font-bold mb-2">
             路径白名单
           </div>
           <div className="space-y-2">
@@ -477,7 +555,7 @@ function App() {
                   key={path}
                   type="button"
                   onClick={() => handleQuickAdd(path)}
-                  className="text-[11px] px-2 py-1 rounded bg-gray-800 text-gray-200 hover:bg-gray-700"
+                  className="text-[11px] px-2 py-1 rounded bg-[#f5efe1] text-[#4a3f35] hover:bg-[#eaddc0] border border-[#e8dcc4]"
                 >
                   {path}
                 </button>
@@ -489,32 +567,32 @@ function App() {
                 value={pathInput}
                 onChange={(e) => setPathInput(e.target.value)}
                 placeholder="输入绝对路径或~"
-                className="flex-1 px-2 py-1.5 text-xs rounded border border-gray-700 bg-gray-800 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-400 outline-none"
+                className="flex-1 px-2 py-1.5 text-xs rounded-lg border border-[#e8dcc4] bg-white/50 text-[#4a3f35] placeholder-[#a08b73]/50 focus:border-[#d4af37] focus:ring-1 focus:ring-[#d4af37]/30 outline-none"
               />
               <button
                 type="button"
                 onClick={handleAddPath}
-                className="px-2 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-700 text-white"
+                className="px-2 py-1.5 text-xs rounded-lg bg-[#d4af37] hover:bg-[#aa8c2c] text-white"
               >
                 添加
               </button>
             </div>
             {pathError ? (
-              <div className="text-xs text-red-400">{pathError}</div>
+              <div className="text-xs text-red-600">{pathError}</div>
             ) : null}
-            <ul className="space-y-1 text-xs text-gray-300 max-h-32 overflow-y-auto">
+            <ul className="space-y-1 text-xs text-[#4a3f35] max-h-32 overflow-y-auto">
               {userPaths.length === 0 ? (
-                <li className="text-gray-500">未配置</li>
+                <li className="text-[#a08b73]">未配置</li>
               ) : (
                 userPaths.map((path) => (
-                  <li key={path} className="flex items-center justify-between gap-2">
-                    <span className="truncate" title={path}>
+                  <li key={path} className="flex items-center justify-between gap-2 py-1">
+                    <span className="truncate opacity-70" title={path}>
                       {path}
                     </span>
                     <button
                       type="button"
                       onClick={() => handleRemovePath(path)}
-                      className="text-red-300 hover:text-red-200"
+                      className="text-red-400 hover:text-red-600 text-[10px]"
                     >
                       移除
                     </button>
@@ -525,54 +603,59 @@ function App() {
           </div>
         </div>
         
-        <div className="flex-1 overflow-y-auto">
-          <div className="flex items-center justify-between text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 px-2">
-            <span>Sessions</span>
-            <button
-              type="button"
-              onClick={() => createSession()}
-              className="text-blue-300 hover:text-blue-200"
-            >
-              新建
-            </button>
+        <nav className="flex-1 overflow-y-auto px-2 space-y-1">
+          <div className="px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-[#a08b73] font-bold">近期回溯</div>
+          {sessions.length === 0 ? (
+            <div className="px-4 py-3 text-sm text-[#a08b73]">暂无会话</div>
+          ) : (
+            sessions.map((session) => (
+              <div
+                key={session.id}
+                className={`group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all hover:bg-[#fcf8ef] ${
+                  session.id === activeSessionId ? 'bg-[#fcf8ef] border-l-4 border-[#d4af37]' : ''
+                }`}
+                onClick={() => loadSession(session.id)}
+              >
+                <MessageSquare className="w-4 h-4 text-[#a08b73]" />
+                <span className="text-sm truncate opacity-80">{session.title || '新会话'}</span>
+              </div>
+            ))
+          )}
+        </nav>
+
+        <div className="p-4 border-t border-[#e8dcc4] flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-200 to-amber-100 flex items-center justify-center text-[10px] text-gray-700 border-2 border-[#d4af37]">
+            MA
           </div>
-          <ul className="space-y-1 text-sm text-gray-300">
-            {sessions.length === 0 ? (
-              <li className="px-2 py-1.5 text-gray-500">暂无会话</li>
-            ) : (
-              sessions.map((session) => (
-                <li
-                  key={session.id}
-                  className={`px-2 py-1.5 rounded cursor-pointer ${
-                    session.id === activeSessionId ? 'bg-gray-800 text-white' : 'hover:bg-gray-800'
-                  }`}
-                  onClick={() => loadSession(session.id)}
-                >
-                  {session.title || '新会话'}
-                </li>
-              ))
-            )}
-          </ul>
+          <div className="flex-1">
+            <p className="text-xs font-bold">MacAgent</p>
+            <p className="text-[10px] opacity-50">智能助手</p>
+          </div>
+          <Settings className="w-4 h-4 opacity-40 hover:opacity-100 cursor-pointer transition-opacity" />
         </div>
+      </aside>
 
-        <div className="mt-auto pt-4 border-t border-gray-800 text-xs text-gray-500">
-          Powered by Trae & OpenAI
-        </div>
-      </div>
-
-      <div className="flex-1 flex flex-col max-w-5xl mx-auto w-full bg-white shadow-xl">
-        <header className="md:hidden h-14 bg-gray-900 text-white flex items-center px-4">
-          <TerminalIcon className="w-5 h-5 mr-2 text-blue-400" />
-          <span className="font-bold">MacAgent</span>
+      {/* 中间：主聊天区域 */}
+      <main className="flex-1 flex flex-col z-10 relative">
+        {/* 顶部工具栏 */}
+        <header className="h-16 flex items-center justify-between px-8 border-b border-[#e8dcc4] bg-white/10 backdrop-blur-md">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+            <span className="text-sm font-medium opacity-70">系统核心已就绪</span>
+          </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        {/* 消息展示区 */}
+        <section className="flex-1 overflow-y-auto p-8 space-y-8 scroll-smooth">
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
-              <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center">
-                <TerminalIcon className="w-8 h-8 text-gray-400" />
+            <div className="h-full flex flex-col items-center justify-center space-y-6">
+              <div className="w-20 h-20 bg-gradient-to-br from-[#d4af37] to-[#aa8c2c] rounded-2xl flex items-center justify-center shadow-xl">
+                <TerminalIcon className="w-10 h-10 text-white" />
               </div>
-              <p className="text-lg font-medium">How can I help you manage your Mac today?</p>
+              <div className="text-center space-y-2">
+                <p className="text-xl font-bold text-[#2c241d]">欢迎来到 MacAgent 智能工坊</p>
+                <p className="text-sm text-[#a08b73]">今天想探索哪些系统魔法？</p>
+              </div>
             </div>
           ) : (
             messages.map((msg) => (
@@ -580,82 +663,109 @@ function App() {
             ))
           )}
           <div ref={messagesEndRef} />
-        </div>
+        </section>
 
-        <div className="p-4 border-t border-gray-200 bg-gray-50">
-          <form onSubmit={handleSubmit} className="relative max-w-4xl mx-auto space-y-3">
-            <div className="flex items-center gap-3">
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Base Model
-              </label>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all bg-white"
-                disabled={isLoading}
-              >
-                {modelOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+        {/* 输入区域 */}
+        <footer className="p-8 pt-0 bg-transparent">
+          <form onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-4">
+            {/* 模型选择和附件上传 */}
+            <div className="flex gap-3 items-center">
+              <div className="flex-1 flex items-center gap-2">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-[#a08b73]">
+                  模型
+                </label>
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="flex-1 px-3 py-2 text-xs rounded-lg border border-[#e8dcc4] bg-white/70 text-[#4a3f35] focus:border-[#d4af37] focus:ring-1 focus:ring-[#d4af37]/30 outline-none transition-all"
+                  disabled={isLoading}
+                >
+                  {modelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1">
+                <input
+                  type="file"
+                  multiple
+                  onChange={(e) => handleFilesSelected(e.target.files)}
+                  className="w-full text-[10px] text-[#4a3f35] file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:bg-[#f5efe1] file:text-[#4a3f35] hover:file:bg-[#eaddc0]"
+                  disabled={isUploading}
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Attachments
-              </label>
-              <input
-                type="file"
-                multiple
-                onChange={(e) => handleFilesSelected(e.target.files)}
-                className="flex-1 text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:bg-gray-200 file:text-gray-700 hover:file:bg-gray-300"
-                disabled={isUploading}
-              />
-            </div>
-            {attachments.length > 0 ? (
-              <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+
+            {/* 附件显示 */}
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2">
                 {attachments.map((item) => (
                   <span
                     key={item.file_id}
-                    className="inline-flex items-center gap-2 px-2 py-1 rounded bg-gray-100 border border-gray-200"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f5efe1] border border-[#e8dcc4] text-xs text-[#4a3f35]"
                   >
                     {item.filename || item.file_id}
                     <button
                       type="button"
                       onClick={() => handleRemoveAttachment(item.file_id)}
-                      className="text-red-400 hover:text-red-500"
+                      className="text-red-400 hover:text-red-600 text-[10px]"
                     >
                       移除
                     </button>
                   </span>
                 ))}
               </div>
-            ) : null}
-            {uploadError ? <div className="text-xs text-red-400">{uploadError}</div> : null}
-            <div className="relative">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Check system load, find large files, or restart a service..."
-                className="w-full pl-4 pr-12 py-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all shadow-sm"
-                disabled={isLoading || isUploading}
-              />
-              <button
-                type="submit"
-                disabled={isLoading || isUploading || !input.trim()}
-                className="absolute right-2 top-2 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <Send className="w-4 h-4" />
-              </button>
+            )}
+            {uploadError && <div className="text-xs text-red-600">{uploadError}</div>}
+
+            {/* 主输入框 */}
+            <div className="relative group">
+              <div className="absolute -inset-1 bg-gradient-to-r from-[#d4af37]/20 via-[#e8dcc4]/20 to-[#d4af37]/20 rounded-[2rem] blur opacity-30 group-hover:opacity-60 transition duration-1000" />
+              <div className="relative bg-white/70 backdrop-blur-2xl rounded-[1.8rem] border border-[#e8dcc4] shadow-2xl flex items-end p-2 pr-4 min-h-[64px] transition-all duration-300 focus-within:border-[#d4af37]/50 focus-within:shadow-[0_0_20px_rgba(212,175,55,0.15)]">
+                <button 
+                  type="button"
+                  className="p-3 hover:bg-[#fdfbf7] rounded-full transition-colors group/upload relative"
+                >
+                  <Paperclip className="w-5 h-5 text-[#a08b73]" />
+                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-[#4a3f35] text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover/upload:opacity-100 transition-opacity whitespace-nowrap">
+                    上传附件
+                  </div>
+                </button>
+
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="在此书写您的智慧..."
+                  className="flex-1 bg-transparent border-none focus:ring-0 outline-none text-sm py-4 px-2 resize-none placeholder-[#a08b73]/50 text-[#4a3f35]"
+                  disabled={isLoading || isUploading}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit(e);
+                    }
+                  }}
+                />
+
+                <button
+                  type="submit"
+                  disabled={isLoading || isUploading || !input.trim()}
+                  className={`p-3 rounded-2xl transition-all ${
+                    input.trim() ? 'bg-[#d4af37] text-white shadow-lg hover:bg-[#aa8c2c]' : 'bg-gray-100 text-gray-300'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           </form>
-          <div className="text-center text-xs text-gray-400 mt-2">
-            AI can make mistakes. Please verify important commands.
-          </div>
-        </div>
-      </div>
+          <p className="text-center mt-4 text-[10px] opacity-40 uppercase tracking-widest text-[#a08b73]">
+            AI 并非万能，请保持理性思考
+          </p>
+        </footer>
+      </main>
     </div>
   );
 }
