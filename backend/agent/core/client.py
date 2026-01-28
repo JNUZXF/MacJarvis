@@ -10,7 +10,22 @@ from agent.core.config import OpenAIConfig
 class OpenAIClient:
     def __init__(self, config: OpenAIConfig) -> None:
         self.config = config
-        self.http_client = httpx.Client(timeout=self.config.timeout_s)
+        
+        # 配置代理
+        proxy = None
+        if config.https_proxy:
+            proxy = config.https_proxy
+        elif config.http_proxy:
+            proxy = config.http_proxy
+        
+        # 创建HTTP客户端,如果有代理则使用代理
+        if proxy:
+            self.http_client = httpx.Client(
+                timeout=self.config.timeout_s,
+                proxy=proxy
+            )
+        else:
+            self.http_client = httpx.Client(timeout=self.config.timeout_s)
 
     def chat_completions(
         self,

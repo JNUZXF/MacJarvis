@@ -6,7 +6,12 @@ import {
   MessageSquare,
   Paperclip,
   Settings,
-  BookOpen
+  BookOpen,
+  Scroll,
+  Sparkles,
+  FileText,
+  Layers,
+  ChevronRight
 } from 'lucide-react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import type { Message, ToolCall, ChatSession, ChatAttachment } from './types';
@@ -40,6 +45,14 @@ const animations = `
   }
 `;
 
+interface Artifact {
+  id: number;
+  title: string;
+  type: 'scroll' | 'code' | 'data';
+  date: string;
+  sessionId?: string;
+}
+
 function App() {
   const [userId, setUserId] = useState('');
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -53,6 +66,13 @@ function App() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [httpProxy, setHttpProxy] = useState('');
+  const [httpsProxy, setHttpsProxy] = useState('');
+  const [proxyError, setProxyError] = useState('');
+  const [artifacts] = useState<Artifact[]>([
+    { id: 1, title: '系统诊断报告 v1.0', type: 'scroll', date: new Date().toLocaleDateString('zh-CN') },
+    { id: 2, title: '自动化脚本集合', type: 'code', date: new Date().toLocaleDateString('zh-CN') }
+  ]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const apiUrl = import.meta.env.VITE_API_URL || '';
 
@@ -147,6 +167,55 @@ function App() {
     }
   };
 
+  const fetchProxyConfig = async (currentUserId: string) => {
+    if (!currentUserId) return;
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/user/proxy?user_id=${encodeURIComponent(currentUserId)}`
+      );
+      if (!response.ok) {
+        throw new Error(`Load proxy config failed: ${response.status}`);
+      }
+      const data = await response.json();
+      setHttpProxy(data.http_proxy || '');
+      setHttpsProxy(data.https_proxy || '');
+      setProxyError('');
+    } catch (err) {
+      console.error('Failed to load proxy config:', err);
+      setProxyError('加载代理配置失败');
+    }
+  };
+
+  const saveProxyConfig = async () => {
+    const currentUserId = userId || localStorage.getItem('mac_agent_user_id');
+    if (!currentUserId) return;
+    try {
+      const response = await fetch(`${apiUrl}/api/user/proxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: currentUserId,
+          http_proxy: httpProxy.trim() || null,
+          https_proxy: httpsProxy.trim() || null,
+        }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `Save proxy config failed: ${response.status}`);
+      }
+      const data = await response.json();
+      setHttpProxy(data.http_proxy || '');
+      setHttpsProxy(data.https_proxy || '');
+      setProxyError('');
+      alert('代理配置已保存');
+    } catch (err) {
+      console.error('Failed to save proxy config:', err);
+      setProxyError(err instanceof Error ? err.message : '保存代理配置失败');
+    }
+  };
+
   useEffect(() => {
     initSessionState().catch((err) => {
       console.error('Failed to init session:', err);
@@ -156,6 +225,7 @@ function App() {
   useEffect(() => {
     if (userId) {
       fetchUserPaths(userId);
+      fetchProxyConfig(userId);
     }
   }, [userId]);
 
@@ -602,6 +672,43 @@ function App() {
             </ul>
           </div>
         </div>
+
+        <div className="mb-6 px-4">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-[#a08b73] font-bold mb-2">
+            代理配置 (可选)
+          </div>
+          <div className="space-y-2">
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={httpProxy}
+                onChange={(e) => setHttpProxy(e.target.value)}
+                placeholder="HTTP代理 (如: http://127.0.0.1:7897)"
+                className="w-full px-2 py-1.5 text-xs rounded-lg border border-[#e8dcc4] bg-white/50 text-[#4a3f35] placeholder-[#a08b73]/50 focus:border-[#d4af37] focus:ring-1 focus:ring-[#d4af37]/30 outline-none"
+              />
+              <input
+                type="text"
+                value={httpsProxy}
+                onChange={(e) => setHttpsProxy(e.target.value)}
+                placeholder="HTTPS代理 (如: http://127.0.0.1:7897)"
+                className="w-full px-2 py-1.5 text-xs rounded-lg border border-[#e8dcc4] bg-white/50 text-[#4a3f35] placeholder-[#a08b73]/50 focus:border-[#d4af37] focus:ring-1 focus:ring-[#d4af37]/30 outline-none"
+              />
+              <button
+                type="button"
+                onClick={saveProxyConfig}
+                className="w-full px-2 py-1.5 text-xs rounded-lg bg-[#d4af37] hover:bg-[#aa8c2c] text-white transition-colors"
+              >
+                保存代理配置
+              </button>
+            </div>
+            {proxyError ? (
+              <div className="text-xs text-red-600">{proxyError}</div>
+            ) : null}
+            <div className="text-[10px] text-[#a08b73] opacity-70 leading-relaxed">
+              💡 配置代理可加速API请求。留空则不使用代理。
+            </div>
+          </div>
+        </div>
         
         <nav className="flex-1 overflow-y-auto px-2 space-y-1">
           <div className="px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-[#a08b73] font-bold">近期回溯</div>
@@ -766,6 +873,93 @@ function App() {
           </p>
         </footer>
       </main>
+
+      {/* 右侧：Artifact 成果展示 (真理印记) */}
+      <aside className="w-80 flex flex-col z-10 border-l border-[#e8dcc4] bg-white/30 backdrop-blur-2xl">
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-8">
+            <h2 className="text-lg font-bold italic text-[#2c241d] flex items-center gap-2">
+              <Scroll className="w-5 h-5 text-[#d4af37]" />
+              真理印记
+            </h2>
+            <div className="flex gap-1">
+              <div className="w-2 h-2 rounded-full bg-[#d4af37]/20"></div>
+              <div className="w-2 h-2 rounded-full bg-[#d4af37]/40"></div>
+              <div className="w-2 h-2 rounded-full bg-[#d4af37]/60"></div>
+            </div>
+          </div>
+
+          <div className="space-y-4 max-h-[calc(100vh-400px)] overflow-y-auto">
+            {artifacts.length === 0 ? (
+              <div className="text-center py-8 text-[#a08b73] text-sm">
+                暂无成果记录
+              </div>
+            ) : (
+              artifacts.map((art) => (
+                <div 
+                  key={art.id} 
+                  className="group relative bg-[#fdfbf7] p-4 rounded-2xl border border-[#e8dcc4] hover:border-[#d4af37] transition-all cursor-pointer overflow-hidden"
+                  style={{ animation: 'float 6s infinite ease-in-out', animationDelay: `${art.id}s` }}
+                >
+                  {/* 装饰用的小背景图腾 */}
+                  <div className="absolute -right-4 -bottom-4 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
+                    <Layers size={100} />
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-white rounded-lg shadow-sm">
+                      {art.type === 'scroll' ? (
+                        <FileText className="w-4 h-4 text-[#d4af37]" />
+                      ) : art.type === 'code' ? (
+                        <TerminalIcon className="w-4 h-4 text-blue-400" />
+                      ) : (
+                        <Layers className="w-4 h-4 text-green-400" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-sm font-bold opacity-80 group-hover:text-[#d4af37] transition-colors">
+                        {art.title}
+                      </h3>
+                      <p className="text-[10px] opacity-40 mt-1 uppercase font-semibold">
+                        {art.date}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex justify-between items-center">
+                    <div className="flex -space-x-2">
+                      {[1, 2, 3].map((i) => (
+                        <div 
+                          key={i} 
+                          className="w-5 h-5 rounded-full border border-white bg-gray-200 overflow-hidden"
+                        >
+                          <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-300"></div>
+                        </div>
+                      ))}
+                    </div>
+                    <button 
+                      type="button"
+                      className="text-[10px] font-bold text-[#d4af37] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      查看详情 <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="mt-12 p-6 rounded-3xl bg-gradient-to-br from-[#d4af37]/10 to-transparent border border-[#d4af37]/20">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-4 h-4 text-[#d4af37]" />
+              <span className="text-xs font-bold uppercase tracking-wider">智力加成</span>
+            </div>
+            <p className="text-[11px] leading-relaxed opacity-60 italic text-[#4a3f35]">
+              "在这个空间内，所有的中间产物都将被永恒记录。每一个咒语的改动都是通往伟大的阶梯。"
+            </p>
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }

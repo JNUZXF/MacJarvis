@@ -320,6 +320,12 @@ OPENAI_MODEL=openai/gpt-4o-mini
 # 可选配置
 OPENAI_TIMEOUT_S=60          # API 请求超时时间（秒）
 OPENAI_MAX_TOOL_TURNS=8      # 最大工具调用轮数
+
+# 代理配置（可选，用于加速API请求）
+# 格式: http://host:port 或 https://host:port
+# 示例: HTTP_PROXY=http://127.0.0.1:7897
+HTTP_PROXY=                  # HTTP代理地址
+HTTPS_PROXY=                 # HTTPS代理地址
 ```
 
 ### 支持的模型
@@ -372,6 +378,62 @@ API：
 - 智能体创建的 `~/Documents`、`~/Desktop` 等路径会映射到宿主机的用户目录
 - 如果文件找不到，检查容器内路径：`docker exec macjarvis-backend ls -la /host_home/Documents`
 - 确保容器有权限访问挂载的目录
+
+### 代理配置
+
+系统支持通过HTTP/HTTPS代理加速API请求，特别适合网络受限的环境。根据性能测试，使用合适的代理可以将首token响应时间(TTFT)从3.8秒降低到2.7秒，提升约29%的响应速度。
+
+#### 方式一：环境变量配置（全局默认）
+
+在`.env`文件中配置全局代理，所有用户默认使用：
+
+```bash
+# 代理配置 (可选)
+HTTP_PROXY=http://127.0.0.1:7897
+HTTPS_PROXY=http://127.0.0.1:7897
+```
+
+配置后需要重启服务：
+```bash
+docker compose down
+docker compose up -d --build
+```
+
+#### 方式二：前端UI配置（用户级别）
+
+每个用户可以在前端界面独立配置自己的代理设置，覆盖全局配置：
+
+1. 打开MacAgent前端界面
+2. 在左侧边栏找到"代理配置 (可选)"区域
+3. 输入代理地址（格式: `http://host:port`）
+4. 点击"保存代理配置"按钮
+5. 配置立即生效，无需重启服务
+
+**代理格式要求**：
+- 必须包含协议前缀: `http://` 或 `https://`
+- 格式: `protocol://host:port`
+- ✅ 正确: `http://127.0.0.1:7897`
+- ❌ 错误: `127.0.0.1:7897`
+
+**常见代理工具配置示例**：
+
+Clash:
+```bash
+HTTP_PROXY=http://127.0.0.1:7897
+HTTPS_PROXY=http://127.0.0.1:7897
+```
+
+V2Ray:
+```bash
+HTTP_PROXY=http://127.0.0.1:1080
+HTTPS_PROXY=http://127.0.0.1:1080
+```
+
+**API接口**：
+- `GET /api/user/proxy?user_id=...` 获取用户代理配置
+- `POST /api/user/proxy` 设置用户代理配置
+
+**详细文档**: 查看 `docs/proxy_configuration_20260128.md` 了解更多信息和性能测试结果
 
 ---
 

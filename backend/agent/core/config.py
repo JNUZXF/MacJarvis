@@ -19,6 +19,8 @@ class OpenAIConfig:
     model: str
     timeout_s: int
     max_tool_turns: int
+    http_proxy: str | None = None
+    https_proxy: str | None = None
 
 
 def is_model_allowed(model: str) -> bool:
@@ -49,6 +51,11 @@ def load_openai_config() -> OpenAIConfig:
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
     timeout_s = int(os.getenv("OPENAI_TIMEOUT_S", "60"))
     max_tool_turns = int(os.getenv("OPENAI_MAX_TOOL_TURNS", "8"))
+    
+    # 读取代理配置
+    http_proxy = os.getenv("HTTP_PROXY", "").strip() or None
+    https_proxy = os.getenv("HTTPS_PROXY", "").strip() or None
+    
     if not api_key:
         raise ValueError("OPENAI_API_KEY or OPENROUTER_API_KEY is required")
     return OpenAIConfig(
@@ -57,4 +64,6 @@ def load_openai_config() -> OpenAIConfig:
         model=model,
         timeout_s=timeout_s,
         max_tool_turns=max_tool_turns,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
     )

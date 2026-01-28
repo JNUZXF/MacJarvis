@@ -473,6 +473,12 @@ class UserPathsRequest(BaseModel):
     paths: list[str]
 
 
+class ProxyConfigRequest(BaseModel):
+    user_id: str
+    http_proxy: str | None = None
+    https_proxy: str | None = None
+
+
 @app.get("/health")
 async def health_check():
     """健康检查端点"""
@@ -554,6 +560,50 @@ async def set_user_paths_endpoint(request: UserPathsRequest):
     return {"user_id": stored_user_id, "paths": normalized}
 
 
+@app.get("/api/user/proxy")
+async def get_user_proxy_config(user_id: str):
+    """获取用户的代理配置"""
+    stored_user_id, user_state = get_or_create_user(user_id)
+    proxy_config = user_state.get("proxy_config", {})
+    return {
+        "user_id": stored_user_id,
+        "http_proxy": proxy_config.get("http_proxy"),
+        "https_proxy": proxy_config.get("https_proxy"),
+    }
+
+
+@app.post("/api/user/proxy")
+async def set_user_proxy_config(request: ProxyConfigRequest):
+    """设置用户的代理配置"""
+    stored_user_id, user_state = get_or_create_user(request.user_id)
+    
+    # 验证代理URL格式
+    if request.http_proxy and not (request.http_proxy.startswith("http://") or request.http_proxy.startswith("https://")):
+        raise HTTPException(status_code=400, detail="HTTP代理格式错误,应为 http://host:port 或 https://host:port")
+    if request.https_proxy and not (request.https_proxy.startswith("http://") or request.https_proxy.startswith("https://")):
+        raise HTTPException(status_code=400, detail="HTTPS代理格式错误,应为 http://host:port 或 https://host:port")
+    
+    # 保存代理配置到用户状态
+    user_state["proxy_config"] = {
+        "http_proxy": request.http_proxy,
+        "https_proxy": request.https_proxy,
+    }
+    
+    log_event(
+        logging.INFO,
+        "proxy_config_updated",
+        user_id=stored_user_id,
+        http_proxy=request.http_proxy or "None",
+        https_proxy=request.https_proxy or "None",
+    )
+    
+    return {
+        "user_id": stored_user_id,
+        "http_proxy": request.http_proxy,
+        "https_proxy": request.https_proxy,
+    }
+
+
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
     if not config or not registry:
@@ -575,7 +625,19 @@ async def chat_endpoint(request: ChatRequest):
     user_state["active_session_id"] = session_id
     user_paths = get_user_paths(user_id)
 
+    # 获取用户的代理配置并应用
+    proxy_config = user_state.get("proxy_config", {})
     request_config = with_model(config, selected_model)
+    
+    # 如果用户配置了代理,覆盖默认配置
+    if proxy_config.get("http_proxy") or proxy_config.get("https_proxy"):
+        from dataclasses import replace
+        request_config = replace(
+            request_config,
+            http_proxy=proxy_config.get("http_proxy"),
+            https_proxy=proxy_config.get("https_proxy"),
+        )
+    
     client = OpenAIClient(request_config)
     system_prompt = build_system_prompt(user_paths)
     agent = Agent(client, registry, system_prompt)
