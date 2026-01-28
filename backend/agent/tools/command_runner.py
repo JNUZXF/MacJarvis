@@ -1,12 +1,13 @@
 # File: backend/agent/tools/command_runner.py
 # Purpose: Execute system commands with timeout control.
 import subprocess
-from typing import Sequence
+from typing import Optional, Sequence
 
 
 class CommandRunner:
-    def __init__(self, timeout_s: int = 30) -> None:
+    def __init__(self, timeout_s: int = 30, cwd: Optional[str] = None) -> None:
         self.timeout_s = timeout_s
+        self.cwd = cwd
 
     def run(self, command: Sequence[str]) -> dict[str, str | int | bool]:
         try:
@@ -16,6 +17,7 @@ class CommandRunner:
                 text=True,
                 timeout=self.timeout_s,
                 check=False,
+                cwd=self.cwd,
             )
             return {
                 "ok": completed.returncode == 0,
