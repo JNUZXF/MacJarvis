@@ -136,7 +136,9 @@ class MessageRepository:
         session_id: str,
         role: str,
         content: str,
-        tool_calls: Optional[list] = None
+        tool_calls: Optional[list] = None,
+        tool_call_results: Optional[list] = None,
+        metadata: Optional[dict] = None
     ) -> Message:
         """Create new message"""
         message = Message(
@@ -144,7 +146,9 @@ class MessageRepository:
             session_id=session_id,
             role=role,
             content=content,
-            tool_calls=tool_calls or []
+            tool_calls=tool_calls or [],
+            tool_call_results=tool_call_results,
+            metadata=metadata
         )
         self.db.add(message)
         await self.db.flush()

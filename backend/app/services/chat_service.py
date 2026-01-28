@@ -8,7 +8,12 @@ import structlog
 from app.services.llm_service import LLMService
 from app.services.session_service import SessionService
 from app.services.file_service import FileService
+from app.services.conversation_history_service import ConversationHistoryService
 from app.config import Settings
+from app.core.agent.orchestrator import AgentOrchestrator
+from app.core.tools.registry import ToolRegistry
+from datetime import datetime
+import json
 
 logger = structlog.get_logger(__name__)
 
@@ -28,20 +33,23 @@ class ChatService:
         llm_service: LLMService,
         session_service: SessionService,
         file_service: FileService,
+        conversation_history_service: ConversationHistoryService,
         settings: Settings
     ):
         """
         Initialize chat service.
-        
+
         Args:
             llm_service: LLM service for AI interactions
             session_service: Session management service
             file_service: File handling service
+            conversation_history_service: Conversation history service
             settings: Application settings
         """
         self.llm = llm_service
         self.sessions = session_service
         self.files = file_service
+        self.conversation_history = conversation_history_service
         self.settings = settings
     
     async def process_chat_message(
@@ -91,11 +99,13 @@ class ChatService:
                     title=title
                 )
             
-            # Add user message to session
+            # Add user message to session with timestamp
+            user_msg_timestamp = datetime.utcnow()
             await self.sessions.add_message(
                 session_id=session_id,
                 role="user",
-                content=message
+                content=message,
+                metadata={"timestamp": user_msg_timestamp.isoformat()}
             )
             
             # Process attachments
@@ -174,13 +184,33 @@ class ChatService:
                     "content": assistant_content
                 }
             
-            # Save assistant message
+            # Save assistant message with timestamp
+            assistant_msg_timestamp = datetime.utcnow()
             await self.sessions.add_message(
                 session_id=session_id,
                 role="assistant",
-                content=assistant_content
+                content=assistant_content,
+                metadata={"timestamp": assistant_msg_timestamp.isoformat()}
             )
-            
+
+            # Export conversation history to Markdown files
+            try:
+                system_prompt = self._build_system_prompt()
+                await self.conversation_history.export_session_to_markdown(
+                    session_id=session_id,
+                    system_prompt=system_prompt
+                )
+                logger.info(
+                    "conversation_exported",
+                    session_id=session_id
+                )
+            except Exception as export_error:
+                logger.error(
+                    "conversation_export_failed",
+                    session_id=session_id,
+                    error=str(export_error)
+                )
+
             logger.info(
                 "chat_processing_completed",
                 user_id=user_id,
@@ -375,3 +405,205 @@ class ChatService:
                 error=str(e)
             )
             return "摘要生成失败"
+
+    async def process_chat_message_with_tools(
+        self,
+        user_id: str,
+        session_id: str,
+        message: str,
+        tool_registry: ToolRegistry,
+        model: Optional[str] = None,
+        attachments: Optional[List[dict]] = None
+    ) -> AsyncIterator[dict]:
+        """
+        Process a chat message with tool execution support.
+
+        Args:
+            user_id: User ID
+            session_id: Session ID
+            message: User message
+            tool_registry: Tool registry for tool execution
+            model: Optional model override
+            attachments: Optional file attachments
+
+        Yields:
+            Event dictionaries (content, tool_start, tool_result, error)
+        """
+        try:
+            # Get or create session
+            session = await self.sessions.get_session(
+                user_id=user_id,
+                session_id=session_id,
+                load_messages=True
+            )
+
+            if not session:
+                yield {
+                    "type": "error",
+                    "error": f"Session not found: {session_id}"
+                }
+                return
+
+            # Update session title if needed
+            if session.get("title") == "新会话" and not session.get("messages"):
+                title = self.sessions.create_session_title(message)
+                await self.sessions.update_session_title(
+                    user_id=user_id,
+                    session_id=session_id,
+                    title=title
+                )
+
+            # Add user message with timestamp
+            user_msg_timestamp = datetime.utcnow()
+            await self.sessions.add_message(
+                session_id=session_id,
+                role="user",
+                content=message,
+                metadata={"timestamp": user_msg_timestamp.isoformat()}
+            )
+
+            # Process attachments
+            attachment_context = ""
+            image_parts = []
+
+            if attachments:
+                attachment_context, image_parts = await self._process_attachments(
+                    attachments
+                )
+
+            # Build user input
+            if image_parts:
+                user_input = [
+                    {"type": "text", "text": message},
+                    *image_parts
+                ]
+            else:
+                user_input = message
+
+            # Get recent history for context
+            history = session.get("messages", [])[-10:]
+            extra_messages = []
+            for hist_msg in history[:-1]:  # Exclude current message
+                if hist_msg.get("role") in ["user", "assistant"]:
+                    extra_messages.append({
+                        "role": hist_msg["role"],
+                        "content": hist_msg.get("content", "")
+                    })
+
+            # Create agent orchestrator
+            llm_client = self.llm.client
+            system_prompt = self._build_system_prompt(attachment_context)
+            orchestrator = AgentOrchestrator(
+                client=llm_client,
+                registry=tool_registry,
+                settings=self.settings,
+                system_prompt=system_prompt
+            )
+
+            # Run agent with tools
+            assistant_content = ""
+            tool_calls = []
+            tool_call_results = []
+            tool_call_timestamp = None
+
+            async for event in orchestrator.run_stream(
+                user_input=user_input,
+                extra_messages=extra_messages
+            ):
+                event_type = event.get("type")
+
+                if event_type == "content":
+                    content = event.get("content", "")
+                    assistant_content += content
+                    yield {
+                        "type": "content",
+                        "content": content
+                    }
+
+                elif event_type == "tool_start":
+                    # Record tool call timestamp
+                    if tool_call_timestamp is None:
+                        tool_call_timestamp = datetime.utcnow()
+
+                    tool_call = {
+                        "id": event.get("tool_call_id"),
+                        "type": "function",
+                        "function": {
+                            "name": event.get("name"),
+                            "arguments": json.dumps(event.get("args", {}), ensure_ascii=False)
+                        }
+                    }
+                    tool_calls.append(tool_call)
+
+                    yield {
+                        "type": "tool_start",
+                        "tool_call_id": event.get("tool_call_id"),
+                        "name": event.get("name"),
+                        "args": event.get("args")
+                    }
+
+                elif event_type == "tool_result":
+                    result = event.get("result", {})
+                    tool_call_results.append(result)
+
+                    yield {
+                        "type": "tool_result",
+                        "tool_call_id": event.get("tool_call_id"),
+                        "result": result
+                    }
+
+            # Save assistant message with tool calls and results
+            assistant_msg_timestamp = datetime.utcnow()
+            metadata = {"timestamp": assistant_msg_timestamp.isoformat()}
+
+            if tool_call_timestamp:
+                metadata["tool_call_timestamp"] = tool_call_timestamp.isoformat()
+
+            await self.sessions.add_message(
+                session_id=session_id,
+                role="assistant",
+                content=assistant_content,
+                tool_calls=tool_calls if tool_calls else None,
+                tool_call_results=tool_call_results if tool_call_results else None,
+                metadata=metadata
+            )
+
+            # Export conversation history to Markdown files
+            try:
+                system_prompt = self._build_system_prompt()
+                await self.conversation_history.export_session_to_markdown(
+                    session_id=session_id,
+                    system_prompt=system_prompt
+                )
+                logger.info(
+                    "conversation_exported",
+                    session_id=session_id
+                )
+            except Exception as export_error:
+                logger.error(
+                    "conversation_export_failed",
+                    session_id=session_id,
+                    error=str(export_error)
+                )
+
+            logger.info(
+                "chat_with_tools_completed",
+                user_id=user_id,
+                session_id=session_id,
+                response_length=len(assistant_content),
+                tool_calls_count=len(tool_calls)
+            )
+
+        except Exception as e:
+            logger.error(
+                "chat_with_tools_failed",
+                user_id=user_id,
+                session_id=session_id,
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True
+            )
+            yield {
+                "type": "error",
+                "error": str(e)
+            }

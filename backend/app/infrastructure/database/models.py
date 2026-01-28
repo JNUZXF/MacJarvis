@@ -59,24 +59,26 @@ class Session(Base):
 class Message(Base):
     """Message model for chat messages"""
     __tablename__ = "messages"
-    
+
     id = Column(String(36), primary_key=True)
     session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     role = Column(String(20), nullable=False)  # user, assistant, system, tool
     content = Column(Text)
     tool_calls = Column(JSON)  # Store tool calls as JSON
+    tool_call_results = Column(JSON)  # Store tool call results as JSON
+    metadata = Column(JSON)  # Store additional metadata (timestamps, etc.)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    
+
     # Relationships
     session = relationship("Session", back_populates="messages")
-    
+
     # Indexes
     __table_args__ = (
         Index('idx_message_session_id', 'session_id'),
         Index('idx_message_created_at', 'created_at'),
         Index('idx_message_session_created', 'session_id', 'created_at'),
     )
-    
+
     def __repr__(self):
         return f"<Message(id={self.id}, role={self.role})>"
 
