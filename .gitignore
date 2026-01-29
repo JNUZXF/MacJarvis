@@ -54,6 +54,8 @@ backend_data/
 htmlcov/
 .tox/
 .hypothesis/
+backend/tests/test_data/
+backend/tests/test_results/
 
 # Node.js
 node_modules/

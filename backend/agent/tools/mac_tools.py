@@ -1452,11 +1452,14 @@ class SpotlightSearchTool:
 
         try:
             runner = CommandRunner(timeout_s=30)
-            result = runner.run(["/usr/bin/mdfind", "-limit", str(limit), query])
+            # mdfind不支持-limit参数，需要通过管道限制结果
+            result = runner.run(["/usr/bin/mdfind", query])
 
             if result.get("ok"):
                 files = result.get("stdout", "").strip().split("\n")
                 files = [f for f in files if f]
+                # 手动限制结果数量
+                files = files[:limit]
                 return {"ok": True, "data": {"results": files, "count": len(files)}}
             else:
                 return result
