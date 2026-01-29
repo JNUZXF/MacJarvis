@@ -1,13 +1,19 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { 
-  Send, 
+import {
+  Send,
   Terminal as TerminalIcon,
   Paperclip,
   Scroll,
   Sparkles,
   FileText,
   Layers,
-  ChevronRight
+  ChevronRight,
+  BookOpen,
+  Activity,
+  Code,
+  Search,
+  Edit3,
+  X
 } from 'lucide-react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import type { Message, ToolCall, ChatSession, ChatAttachment } from './types';
@@ -31,6 +37,13 @@ interface Artifact {
   sessionId?: string;
 }
 
+interface QuickAction {
+  id: string;
+  icon: React.ReactNode;
+  label: string;
+  prompt: string;
+}
+
 function App() {
   const [userId, setUserId] = useState('');
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -50,6 +63,34 @@ function App() {
   const [artifacts] = useState<Artifact[]>([
     { id: 1, title: '系统诊断报告 v1.0', type: 'scroll', date: new Date().toLocaleDateString('zh-CN') },
     { id: 2, title: '自动化脚本集合', type: 'code', date: new Date().toLocaleDateString('zh-CN') }
+  ]);
+  const [editingActionId, setEditingActionId] = useState<string | null>(null);
+  const [editingPrompt, setEditingPrompt] = useState('');
+  const [quickActions, setQuickActions] = useState<QuickAction[]>([
+    {
+      id: 'doc-summary',
+      icon: <BookOpen className="w-4 h-4" />,
+      label: '批量文档总结',
+      prompt: '帮我总结Documents目录下的所有文档，使用中等长度摘要，4线程并发处理'
+    },
+    {
+      id: 'system-diagnosis',
+      icon: <Activity className="w-4 h-4" />,
+      label: '系统诊断报告',
+      prompt: '生成完整的系统诊断报告：系统信息、磁盘使用、CPU占用最高的5个进程、开放端口和网络配置'
+    },
+    {
+      id: 'dev-check',
+      icon: <Code className="w-4 h-4" />,
+      label: '开发环境检查',
+      prompt: '检查开发环境：Git仓库状态、常用端口（3000/5000/8000/8080）占用情况、开发进程列表'
+    },
+    {
+      id: 'file-search',
+      icon: <Search className="w-4 h-4" />,
+      label: '智能文件搜索',
+      prompt: '在Documents目录搜索最近7天修改的PDF和Word文档，按修改时间排序'
+    }
   ]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 默认使用18888端口（避免端口冲突）
@@ -281,6 +322,38 @@ function App() {
         };
       })
     );
+  };
+
+  const handleQuickAction = (action: QuickAction) => {
+    setInput(action.prompt);
+    // 自动聚焦到输入框
+    setTimeout(() => {
+      const inputElement = document.querySelector('input[type="text"]') as HTMLInputElement;
+      if (inputElement) {
+        inputElement.focus();
+      }
+    }, 0);
+  };
+
+  const handleEditAction = (action: QuickAction) => {
+    setEditingActionId(action.id);
+    setEditingPrompt(action.prompt);
+  };
+
+  const handleSaveEdit = (actionId: string) => {
+    if (!editingPrompt.trim()) return;
+    setQuickActions((prev) =>
+      prev.map((action) =>
+        action.id === actionId ? { ...action, prompt: editingPrompt } : action
+      )
+    );
+    setEditingActionId(null);
+    setEditingPrompt('');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingActionId(null);
+    setEditingPrompt('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -663,6 +736,70 @@ function App() {
               </div>
             )}
             {uploadError && <div className="text-xs text-red-600">{uploadError}</div>}
+
+            {/* 快捷按键 */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              {quickActions.map((action) => (
+                <div key={action.id} className="relative group/action">
+                  {editingActionId === action.id ? (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/90 backdrop-blur-sm border border-[#d4af37] shadow-lg">
+                      <input
+                        type="text"
+                        value={editingPrompt}
+                        onChange={(e) => setEditingPrompt(e.target.value)}
+                        className="flex-1 bg-transparent border-none focus:ring-0 outline-none text-xs text-[#4a3f35] min-w-[200px]"
+                        placeholder="编辑快捷指令..."
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleSaveEdit(action.id);
+                          } else if (e.key === 'Escape') {
+                            handleCancelEdit();
+                          }
+                        }}
+                      />
+                      <button
+                        onClick={() => handleSaveEdit(action.id)}
+                        className="p-1 hover:bg-[#d4af37]/20 rounded transition-colors"
+                        title="保存"
+                      >
+                        <Edit3 className="w-3 h-3 text-[#d4af37]" />
+                      </button>
+                      <button
+                        onClick={handleCancelEdit}
+                        className="p-1 hover:bg-red-500/20 rounded transition-colors"
+                        title="取消"
+                      >
+                        <X className="w-3 h-3 text-red-500" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleQuickAction(action)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/80 backdrop-blur-sm border border-[#e8dcc4] hover:border-[#d4af37] hover:bg-[#fdfbf7] transition-all shadow-sm hover:shadow-md group"
+                      disabled={isLoading}
+                    >
+                      <span className="text-[#d4af37] group-hover:scale-110 transition-transform">
+                        {action.icon}
+                      </span>
+                      <span className="text-xs text-[#4a3f35] font-medium">{action.label}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditAction(action);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#d4af37]/20 rounded transition-all ml-1"
+                        title="编辑"
+                      >
+                        <Edit3 className="w-3 h-3 text-[#a08b73]" />
+                      </button>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
 
             {/* 主输入框 */}
             <div className="relative group">
