@@ -16,6 +16,8 @@ from app.services.session_service import SessionService
 from app.services.user_service import UserService
 from app.services.file_service import FileService
 from app.services.chat_service import ChatService
+from app.services.conversation_history_service import ConversationHistoryService
+from app.services.markdown_exporter import MarkdownExporter
 
 logger = structlog.get_logger(__name__)
 
@@ -182,35 +184,61 @@ def get_file_service(
 ) -> FileService:
     """
     Get file service instance.
-    
+
     Args:
         settings: Application settings
-    
+
     Returns:
         File service
     """
     return FileService(settings)
 
 
+async def get_conversation_history_service(
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_app_settings)
+) -> ConversationHistoryService:
+    """
+    Get conversation history service instance.
+
+    Args:
+        db: Database session
+        settings: Application settings
+
+    Returns:
+        Conversation history service
+    """
+    markdown_exporter = MarkdownExporter(base_path="files")
+    return ConversationHistoryService(db, markdown_exporter, base_path="files")
+
+
 async def get_chat_service(
     llm_service: LLMService = Depends(get_llm_service),
     session_service: SessionService = Depends(get_session_service),
     file_service: FileService = Depends(get_file_service),
+    conversation_history_service: ConversationHistoryService = Depends(get_conversation_history_service),
     settings: Settings = Depends(get_app_settings)
 ) -> ChatService:
     """
     Get chat service instance (top-level orchestrator).
-    
+
     Args:
         llm_service: LLM service
         session_service: Session service
         file_service: File service
+        conversation_history_service: Conversation history service
         settings: Application settings
-    
+
     Returns:
         Chat service
     """
-    return ChatService(llm_service, session_service, file_service, settings)
+    return ChatService(
+        llm_service,
+        session_service,
+        file_service,
+        conversation_history_service,
+        settings
+    )
 
 
 # ============================================================================

@@ -292,35 +292,43 @@ class SessionService:
         session_id: str,
         role: str,
         content: str,
-        tool_calls: Optional[list] = None
+        tool_calls: Optional[list] = None,
+        tool_call_results: Optional[list] = None,
+        metadata: Optional[dict] = None
     ) -> dict:
         """
         Add a message to a session.
-        
+
         Args:
             session_id: Session ID
             role: Message role (user, assistant, system, tool)
             content: Message content
             tool_calls: Optional tool calls
-        
+            tool_call_results: Optional tool call results
+            metadata: Optional metadata
+
         Returns:
             Message dictionary
         """
         message_id = str(uuid.uuid4())
-        
+
         message = await self.message_repo.create(
             message_id=message_id,
             session_id=session_id,
             role=role,
             content=content,
-            tool_calls=tool_calls
+            tool_calls=tool_calls,
+            tool_call_results=tool_call_results,
+            metadata=metadata
         )
-        
+
         return {
             "id": message.id,
             "role": message.role,
             "content": message.content,
             "tool_calls": message.tool_calls or [],
+            "tool_call_results": message.tool_call_results,
+            "metadata": message.metadata,
             "created_at": int(message.created_at.timestamp() * 1000),
         }
     
