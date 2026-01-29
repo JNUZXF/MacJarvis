@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, update, delete
 
-from backend.app.infrastructure.database.models import (
+from app.infrastructure.database.models import (
     PreferenceMemory,
     FactMemory,
     TaskMemory,
@@ -42,7 +42,7 @@ class MemoryManager:
         preference_value: str,
         confidence: int = 5,
         source: str = "explicit",
-        metadata: Optional[Dict] = None
+        extra_metadata: Optional[Dict] = None
     ) -> PreferenceMemory:
         """
         Add or update a user preference with deduplication
@@ -54,7 +54,7 @@ class MemoryManager:
             preference_value: Preference value
             confidence: Confidence level (1-10)
             source: Source of preference (explicit, inferred)
-            metadata: Additional metadata
+            extra_metadata: Additional metadata
 
         Returns:
             PreferenceMemory instance
@@ -71,8 +71,8 @@ class MemoryManager:
                     existing.source = source
                     existing.updated_at = datetime.utcnow()
                     existing.last_confirmed_at = datetime.utcnow()
-                    if metadata:
-                        existing.metadata = metadata
+                    if extra_metadata:
+                        existing.extra_metadata = extra_metadata
 
                     await self.db.commit()
                     logger.info(f"Updated preference {preference_key} for user {user_id}")
@@ -90,7 +90,7 @@ class MemoryManager:
                     preference_value=preference_value,
                     confidence=confidence,
                     source=source,
-                    metadata=metadata,
+                    extra_metadata=extra_metadata,
                     last_confirmed_at=datetime.utcnow()
                 )
                 self.db.add(pref)
@@ -148,7 +148,7 @@ class MemoryManager:
         fact_value: str,
         confidence: int = 5,
         source: str = "direct_statement",
-        metadata: Optional[Dict] = None
+        extra_metadata: Optional[Dict] = None
     ) -> FactMemory:
         """
         Add or update a user fact with deduplication
@@ -160,7 +160,7 @@ class MemoryManager:
             fact_value: The fact value
             confidence: Confidence level (1-10)
             source: Source of fact
-            metadata: Additional metadata
+            extra_metadata: Additional metadata
 
         Returns:
             FactMemory instance
@@ -177,8 +177,8 @@ class MemoryManager:
                     existing.source = source
                     existing.updated_at = datetime.utcnow()
                     existing.verified_at = datetime.utcnow()
-                    if metadata:
-                        existing.metadata = metadata
+                    if extra_metadata:
+                        existing.extra_metadata = extra_metadata
 
                     await self.db.commit()
                     logger.info(f"Updated fact {subject} for user {user_id}")
@@ -196,7 +196,7 @@ class MemoryManager:
                     fact_value=fact_value,
                     confidence=confidence,
                     source=source,
-                    metadata=metadata,
+                    extra_metadata=extra_metadata,
                     verified_at=datetime.utcnow()
                 )
                 self.db.add(fact)
@@ -246,6 +246,11 @@ class MemoryManager:
 
     # ============ Task Memory Methods ============
 
+    @staticmethod
+    def _clamp_progress(progress: int) -> int:
+        """Clamp task progress to the inclusive range [0, 100]."""
+        return max(0, min(100, progress))
+
     async def add_task(
         self,
         user_id: str,
@@ -256,7 +261,7 @@ class MemoryManager:
         progress: int = 0,
         priority: str = "medium",
         context: Optional[Dict] = None,
-        metadata: Optional[Dict] = None,
+        extra_metadata: Optional[Dict] = None,
         session_id: Optional[str] = None,
         due_date: Optional[datetime] = None
     ) -> TaskMemory:
@@ -272,7 +277,7 @@ class MemoryManager:
             progress: Progress percentage (0-100)
             priority: Priority (low, medium, high, urgent)
             context: Related context (files, links, etc.)
-            metadata: Additional metadata
+            extra_metadata: Additional metadata
             session_id: Associated session ID
             due_date: Due date if any
 
@@ -287,6 +292,9 @@ class MemoryManager:
                 logger.info(f"Task '{title}' already exists for user {user_id}")
                 return existing
 
+            # Clamp progress to valid range
+            clamped_progress = self._clamp_progress(progress)
+
             # Create new task
             task = TaskMemory(
                 id=str(uuid.uuid4()),
@@ -296,10 +304,10 @@ class MemoryManager:
                 title=title,
                 description=description,
                 status=status,
-                progress=progress,
+                progress=clamped_progress,
                 priority=priority,
                 context=context,
-                metadata=metadata,
+                extra_metadata=extra_metadata,
                 due_date=due_date
             )
             self.db.add(task)
@@ -315,14 +323,20 @@ class MemoryManager:
     async def update_task(
         self,
         task_id: str,
+        user_id: str,
         status: Optional[str] = None,
         progress: Optional[int] = None,
         description: Optional[str] = None
     ) -> Optional[TaskMemory]:
-        """Update an existing task"""
+        """Update an existing task (with user_id authorization check)"""
         try:
             result = await self.db.execute(
-                select(TaskMemory).where(TaskMemory.id == task_id)
+                select(TaskMemory).where(
+                    and_(
+                        TaskMemory.id == task_id,
+                        TaskMemory.user_id == user_id
+                    )
+                )
             )
             task = result.scalar_one_or_none()
 
@@ -336,7 +350,7 @@ class MemoryManager:
                     task.progress = 100
 
             if progress is not None:
-                task.progress = min(100, max(0, progress))
+                task.progress = self._clamp_progress(progress)
 
             if description:
                 task.description = description
@@ -344,7 +358,7 @@ class MemoryManager:
             task.updated_at = datetime.utcnow()
             await self.db.commit()
 
-            logger.info(f"Updated task {task_id}")
+            logger.info(f"Updated task {task_id} for user {user_id}")
             return task
 
         except Exception as e:
@@ -401,7 +415,7 @@ class MemoryManager:
         object_type: str,
         confidence: int = 5,
         bidirectional: bool = False,
-        metadata: Optional[Dict] = None
+        extra_metadata: Optional[Dict] = None
     ) -> RelationMemory:
         """
         Add or update a relation between entities
@@ -415,7 +429,7 @@ class MemoryManager:
             object_type: Type of object
             confidence: Confidence level (1-10)
             bidirectional: Whether relation works both ways
-            metadata: Additional metadata
+            extra_metadata: Additional metadata
 
         Returns:
             RelationMemory instance
@@ -431,8 +445,8 @@ class MemoryManager:
                 if confidence > existing.confidence:
                     existing.confidence = confidence
                     existing.updated_at = datetime.utcnow()
-                    if metadata:
-                        existing.metadata = metadata
+                    if extra_metadata:
+                        existing.extra_metadata = extra_metadata
 
                     await self.db.commit()
                     logger.info(f"Updated relation: {subject_entity} {relation_type} {object_entity}")
@@ -542,7 +556,7 @@ class MemoryManager:
                 preference_value=pref_data.get("value", ""),
                 confidence=pref_data.get("confidence", 5),
                 source=pref_data.get("source", "explicit"),
-                metadata={"session_id": session_id} if session_id else None
+                extra_metadata={"session_id": session_id} if session_id else None
             )
             counts["preferences"] += 1
 
@@ -555,7 +569,7 @@ class MemoryManager:
                 fact_value=fact_data.get("value", ""),
                 confidence=fact_data.get("confidence", 5),
                 source=fact_data.get("source", "direct_statement"),
-                metadata={"session_id": session_id} if session_id else None
+                extra_metadata={"session_id": session_id} if session_id else None
             )
             counts["facts"] += 1
 
@@ -582,7 +596,7 @@ class MemoryManager:
                 object_entity=rel_data.get("object", ""),
                 object_type=rel_data.get("object_type", "entity"),
                 confidence=rel_data.get("confidence", 5),
-                metadata={"session_id": session_id} if session_id else None
+                extra_metadata={"session_id": session_id} if session_id else None
             )
             counts["relations"] += 1
 

@@ -5,9 +5,9 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import asyncio
 
-from backend.app.services.memory_extractor import MemoryExtractor
-from backend.app.services.memory_manager import MemoryManager
-from backend.app.infrastructure.database.models import Message
+from app.services.memory_extractor import MemoryExtractor
+from app.services.memory_manager import MemoryManager
+from app.infrastructure.database.models import Message
 
 logger = logging.getLogger(__name__)
 
@@ -332,7 +332,7 @@ class MemoryIntegrationService:
             Dictionary with memory statistics
         """
         try:
-            from backend.app.services.memory_consolidator import MemoryConsolidator
+            from app.services.memory_consolidator import MemoryConsolidator
 
             # Get statistics
             consolidator = MemoryConsolidator(self.manager.db)

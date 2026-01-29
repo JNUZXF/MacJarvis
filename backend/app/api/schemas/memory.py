@@ -92,7 +92,6 @@ class ConsolidationResponse(BaseModel):
     preferences_removed: int
     facts_decayed: int
     facts_removed: int
-    tasks_completed: int
-    tasks_removed: int
+    tasks_marked_stale: int
     relations_decayed: int
     relations_removed: int

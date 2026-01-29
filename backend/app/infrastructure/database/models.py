@@ -193,7 +193,7 @@ class PreferenceMemory(Base):
     preference_value = Column(Text, nullable=False)  # vegetarian, concise, etc.
     confidence = Column(Integer, default=5, nullable=False)  # 1-10 scale
     source = Column(String(100))  # explicit, inferred, etc.
-    metadata = Column(JSON)  # Additional context
+    extra_metadata = Column(JSON)  # Additional context
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     last_confirmed_at = Column(DateTime)  # When user last confirmed this preference
@@ -258,7 +258,7 @@ class TaskMemory(Base):
     progress = Column(Integer, default=0)  # 0-100 percentage
     priority = Column(String(20), default='medium')  # low, medium, high, urgent
     context = Column(JSON)  # Related files, links, dependencies, etc.
-    metadata = Column(JSON)  # Tags, labels, etc.
+    extra_metadata = Column(JSON)  # Tags, labels, etc.
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     due_date = Column(DateTime)
@@ -293,7 +293,7 @@ class RelationMemory(Base):
     object_type = Column(String(100), nullable=False)  # person, project, organization, etc.
     confidence = Column(Integer, default=5, nullable=False)  # 1-10 scale
     bidirectional = Column(Integer, default=0, nullable=False)  # 0 or 1 (SQLite doesn't have boolean)
-    metadata = Column(JSON)  # Context, properties, etc.
+    extra_metadata = Column(JSON)  # Context, properties, etc.
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

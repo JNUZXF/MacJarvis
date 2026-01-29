@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, delete
 
-from backend.app.infrastructure.database.models import (
+from app.infrastructure.database.models import (
     PreferenceMemory,
     FactMemory,
     TaskMemory,
@@ -62,8 +62,7 @@ class MemoryConsolidator:
             "preferences_removed": 0,
             "facts_decayed": 0,
             "facts_removed": 0,
-            "tasks_completed": 0,
-            "tasks_removed": 0,
+            "tasks_marked_stale": 0,
             "relations_decayed": 0,
             "relations_removed": 0
         }
@@ -224,10 +223,9 @@ class MemoryConsolidator:
     # ============ Task Management ============
 
     async def _handle_stale_tasks(self, user_id: str) -> Dict[str, int]:
-        """Complete or remove stale tasks"""
+        """Mark stale tasks as on_hold or cancelled"""
         stats = {
-            "tasks_completed": 0,
-            "tasks_removed": 0
+            "tasks_marked_stale": 0
         }
 
         cutoff_date = datetime.utcnow() - timedelta(days=self.task_stale_days)
@@ -253,7 +251,7 @@ class MemoryConsolidator:
                 task.status = "cancelled"
 
             task.updated_at = datetime.utcnow()
-            stats["tasks_completed"] += 1
+            stats["tasks_marked_stale"] += 1
 
         await self.db.commit()
 
@@ -409,7 +407,7 @@ class MemoryConsolidator:
         # For now, we'll just get all users
         # In production, you'd want to filter by recent activity
 
-        from backend.app.infrastructure.database.models import User
+        from app.infrastructure.database.models import User
 
         result = await self.db.execute(
             select(User.id).limit(limit)
@@ -430,9 +428,10 @@ class MemoryConsolidator:
                 total_stats["total_memories_removed"] += (
                     stats["preferences_removed"] +
                     stats["facts_removed"] +
-                    stats["tasks_removed"] +
                     stats["relations_removed"]
                 )
+                # tasks_marked_stale are not removed, just marked
+                total_stats["total_tasks_marked_stale"] = total_stats.get("total_tasks_marked_stale", 0) + stats.get("tasks_marked_stale", 0)
                 total_stats["total_memories_decayed"] += (
                     stats["preferences_decayed"] +
                     stats["facts_decayed"] +

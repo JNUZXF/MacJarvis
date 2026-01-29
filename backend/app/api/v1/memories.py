@@ -304,8 +304,7 @@ async def consolidate_user_memories(
             preferences_removed=stats["preferences_removed"],
             facts_decayed=stats["facts_decayed"],
             facts_removed=stats["facts_removed"],
-            tasks_completed=stats["tasks_completed"],
-            tasks_removed=stats["tasks_removed"],
+            tasks_marked_stale=stats["tasks_marked_stale"],
             relations_decayed=stats["relations_decayed"],
             relations_removed=stats["relations_removed"]
         )
@@ -390,15 +389,13 @@ async def update_task_status(
         memory_manager = MemoryManager(db)
         task = await memory_manager.update_task(
             task_id=task_id,
+            user_id=user_id,  # Pass user_id for authorization check
             status=status,
             progress=progress
         )
 
         if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
-
-        if task.user_id != user_id:
-            raise HTTPException(status_code=403, detail="Not authorized")
+            raise HTTPException(status_code=404, detail="Task not found or not authorized")
 
         return {
             "status": "updated",
