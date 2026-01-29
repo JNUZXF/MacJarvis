@@ -348,41 +348,44 @@ function App() {
             const data = JSON.parse(ev.data);
             
             updateSessionMessages(sessionId, (prevMessages) => {
-              const newMessages = [...prevMessages];
-              const msgIndex = newMessages.findIndex(m => m.id === assistantMessageId);
+              const msgIndex = prevMessages.findIndex(m => m.id === assistantMessageId);
               if (msgIndex === -1) return prevMessages;
-              const currentMsg = newMessages[msgIndex];
-              const msg: Message = {
-                ...currentMsg,
-                toolCalls: [...(currentMsg.toolCalls || [])],
-                blocks: [...(currentMsg.blocks || [])],
-              };
+              
+              const currentMsg = prevMessages[msgIndex];
+              
+              // 创建新的消息对象，避免直接修改
+              let updatedMsg: Message = { ...currentMsg };
+              let needsUpdate = false;
 
               if (ev.event === 'content') {
-                msg.content = `${msg.content || ''}${data}`;
-                const nextBlocks = msg.blocks ? [...msg.blocks] : [];
-                const lastBlock = nextBlocks[nextBlocks.length - 1];
+                needsUpdate = true;
+                updatedMsg.content = `${currentMsg.content || ''}${data}`;
+                const blocks = currentMsg.blocks ? [...currentMsg.blocks] : [];
+                const lastBlock = blocks[blocks.length - 1];
+                
                 if (lastBlock?.type === 'content') {
-                  nextBlocks[nextBlocks.length - 1] = {
+                  blocks[blocks.length - 1] = {
                     ...lastBlock,
                     content: `${lastBlock.content}${data}`,
                   };
                 } else {
-                  nextBlocks.push({ type: 'content', content: data });
+                  blocks.push({ type: 'content', content: data });
                 }
-                msg.blocks = nextBlocks;
+                updatedMsg.blocks = blocks;
               } else if (ev.event === 'tool_start') {
+                needsUpdate = true;
                 const toolCall: ToolCall = {
                   id: data.tool_call_id,
                   name: data.name,
                   args: data.args,
                   status: 'running',
                 };
-                msg.toolCalls = [...(msg.toolCalls || []), toolCall];
-                msg.blocks = [...(msg.blocks || []), { type: 'tool', toolCallId: toolCall.id }];
+                updatedMsg.toolCalls = [...(currentMsg.toolCalls || []), toolCall];
+                updatedMsg.blocks = [...(currentMsg.blocks || []), { type: 'tool', toolCallId: toolCall.id }];
               } else if (ev.event === 'tool_result') {
-                if (msg.toolCalls) {
-                  msg.toolCalls = msg.toolCalls.map(tc =>
+                needsUpdate = true;
+                if (currentMsg.toolCalls) {
+                  updatedMsg.toolCalls = currentMsg.toolCalls.map(tc =>
                     tc.id === data.tool_call_id
                       ? {
                           ...tc,
@@ -393,23 +396,29 @@ function App() {
                   );
                 }
               } else if (ev.event === 'error') {
+                needsUpdate = true;
                 const errorText = `\n\n**Error:** ${data}`;
-                msg.content = `${msg.content || ''}${errorText}`;
-                const nextBlocks = msg.blocks ? [...msg.blocks] : [];
-                const lastBlock = nextBlocks[nextBlocks.length - 1];
+                updatedMsg.content = `${currentMsg.content || ''}${errorText}`;
+                const blocks = currentMsg.blocks ? [...currentMsg.blocks] : [];
+                const lastBlock = blocks[blocks.length - 1];
+                
                 if (lastBlock?.type === 'content') {
-                  nextBlocks[nextBlocks.length - 1] = {
+                  blocks[blocks.length - 1] = {
                     ...lastBlock,
                     content: `${lastBlock.content}${errorText}`,
                   };
                 } else {
-                  nextBlocks.push({ type: 'content', content: errorText });
+                  blocks.push({ type: 'content', content: errorText });
                 }
-                msg.blocks = nextBlocks;
+                updatedMsg.blocks = blocks;
                 setIsLoading(false);
               }
 
-              newMessages[msgIndex] = msg;
+              // 只有在需要更新时才创建新数组
+              if (!needsUpdate) return prevMessages;
+              
+              const newMessages = [...prevMessages];
+              newMessages[msgIndex] = updatedMsg;
               return newMessages;
             });
           } catch (parseErr) {

@@ -368,7 +368,9 @@
   white-space: pre-wrap;
   overflow-wrap: break-word;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: auto;
+  max-height: 600px;
+  contain: layout style paint;
 }
 
 .markdownContent pre code {
@@ -385,7 +387,8 @@
   word-break: break-word;
   overflow-wrap: break-word;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: auto;
+  max-width: 100%;
 }
 
 /* 代码块复制按钮区域 */
