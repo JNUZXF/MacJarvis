@@ -1,3 +1,9 @@
+/**
+ * 全局基础样式文件
+ * 路径: frontend/src/styles/global.css
+ * 功能: 提供最小化的全局样式，包括 Tailwind 导入、滚动条样式、字体设置等
+ */
+
 @import "tailwindcss";
 
 @layer base {

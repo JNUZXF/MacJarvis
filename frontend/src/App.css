@@ -1,9 +1,5 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
+/* App.css 已迁移到 App.module.css */
+/* 此文件保留为空，避免影响布局 */
 
 .logo {
   height: 6em;

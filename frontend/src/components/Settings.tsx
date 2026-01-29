@@ -4,6 +4,8 @@
 
 import React, { useState } from 'react';
 import { X, Plus } from 'lucide-react';
+import styles from './Settings.module.css';
+import clsx from 'clsx';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -60,34 +62,34 @@ export const Settings: React.FC<SettingsProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className={styles.overlay}>
+      <div className={styles.modal}>
         {/* 头部 */}
-        <div className="sticky top-0 flex items-center justify-between p-6 border-b border-[#e8dcc4] bg-white">
-          <h2 className="text-2xl font-bold text-[#2c241d]">系统设置</h2>
+        <div className={styles.header}>
+          <h2 className={styles.headerTitle}>系统设置</h2>
           <button
             type="button"
             onClick={onClose}
-            className="p-2 hover:bg-[#f5efe1] rounded-lg transition-colors"
+            className={styles.closeButton}
           >
-            <X className="w-6 h-6 text-[#a08b73]" />
+            <X className={styles.closeIcon} />
           </button>
         </div>
 
         {/* 内容区 */}
-        <div className="p-6 space-y-8">
+        <div className={styles.content}>
           {/* 模型选择 */}
-          <div>
-            <h3 className="text-lg font-bold text-[#2c241d] mb-4 flex items-center gap-2">
-              <span className="w-1 h-6 bg-[#d4af37] rounded"></span>
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>
+              <span className={styles.sectionTitleIndicator}></span>
               模型选择
             </h3>
             <div className="space-y-2">
-              <label className="text-sm text-[#4a3f35] font-semibold">当前模型</label>
+              <label className={styles.label}>当前模型</label>
               <select
                 value={model}
                 onChange={(e) => onModelChange(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg border border-[#e8dcc4] bg-white text-[#4a3f35] focus:border-[#d4af37] focus:ring-2 focus:ring-[#d4af37]/30 outline-none transition-all"
+                className={styles.select}
               >
                 {modelOptions.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -102,25 +104,24 @@ export const Settings: React.FC<SettingsProps> = ({
           </div>
 
           {/* 路径白名单 */}
-          <div>
-            <h3 className="text-lg font-bold text-[#2c241d] mb-4 flex items-center gap-2">
-              <span className="w-1 h-6 bg-[#d4af37] rounded"></span>
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>
+              <span className={styles.sectionTitleIndicator}></span>
               路径白名单
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="text-sm text-[#4a3f35] font-semibold block mb-2">快速添加</label>
-                <div className="flex flex-wrap gap-2">
+                <label className={styles.label}>快速添加</label>
+                <div className={styles.quickAddButtons}>
                   {['~', '~/Desktop', '~/Documents', '~/Downloads'].map((path) => (
                     <button
                       key={path}
                       type="button"
                       onClick={() => handleQuickAdd(path)}
-                      className={`px-3 py-2 rounded-lg border text-sm transition-all ${
-                        userPaths.includes(path)
-                          ? 'bg-[#d4af37] text-white border-[#d4af37]'
-                          : 'bg-[#f5efe1] text-[#4a3f35] border-[#e8dcc4] hover:border-[#d4af37]'
-                      }`}
+                      className={clsx(
+                        styles.quickAddButton,
+                        userPaths.includes(path) ? styles.quickAddButtonActive : styles.quickAddButtonInactive
+                      )}
                     >
                       {path}
                     </button>
@@ -129,14 +130,14 @@ export const Settings: React.FC<SettingsProps> = ({
               </div>
 
               <div>
-                <label className="text-sm text-[#4a3f35] font-semibold block mb-2">自定义路径</label>
+                <label className={styles.label}>自定义路径</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={pathInput}
                     onChange={(e) => setPathInput(e.target.value)}
                     placeholder="输入绝对路径或~"
-                    className="flex-1 px-4 py-2 rounded-lg border border-[#e8dcc4] bg-white text-[#4a3f35] placeholder-[#a08b73]/50 focus:border-[#d4af37] focus:ring-2 focus:ring-[#d4af37]/30 outline-none transition-all"
+                    className={clsx(styles.input, "flex-1")}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         handleAddPath();
@@ -146,7 +147,7 @@ export const Settings: React.FC<SettingsProps> = ({
                   <button
                     type="button"
                     onClick={handleAddPath}
-                    className="px-4 py-2 rounded-lg bg-[#d4af37] hover:bg-[#aa8c2c] text-white font-semibold transition-colors flex items-center gap-2"
+                    className={clsx(styles.button, styles.buttonPrimary)}
                   >
                     <Plus className="w-4 h-4" />
                     添加
@@ -155,29 +156,29 @@ export const Settings: React.FC<SettingsProps> = ({
               </div>
 
               {pathError && (
-                <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{pathError}</div>
+                <div className={styles.errorMessage}>{pathError}</div>
               )}
 
               <div>
-                <label className="text-sm text-[#4a3f35] font-semibold block mb-2">已配置路径</label>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
+                <label className={styles.label}>已配置路径</label>
+                <div className={styles.pathList}>
                   {userPaths.length === 0 ? (
-                    <div className="text-sm text-[#a08b73] py-3 text-center bg-[#f5efe1] rounded-lg">
+                    <div className={styles.emptyState}>
                       未配置任何路径
                     </div>
                   ) : (
                     userPaths.map((path) => (
                       <div
                         key={path}
-                        className="flex items-center justify-between p-3 bg-[#f5efe1] rounded-lg border border-[#e8dcc4]"
+                        className={styles.pathItem}
                       >
-                        <span className="text-sm text-[#4a3f35] truncate" title={path}>
+                        <span className={styles.pathText} title={path}>
                           {path}
                         </span>
                         <button
                           type="button"
                           onClick={() => handleRemovePath(path)}
-                          className="text-red-400 hover:text-red-600 text-sm font-semibold transition-colors"
+                          className={styles.removeButton}
                         >
                           移除
                         </button>
@@ -187,54 +188,54 @@ export const Settings: React.FC<SettingsProps> = ({
                 </div>
               </div>
 
-              <p className="text-xs text-[#a08b73] bg-blue-50 p-3 rounded-lg border border-blue-200">
+              <p className={clsx(styles.infoBox, styles.infoBoxBlue)}>
                 🔒 <strong>安全限制：</strong>系统仅允许访问配置的路径中的文件，防止不当访问。
               </p>
             </div>
           </div>
 
           {/* 代理配置 */}
-          <div>
-            <h3 className="text-lg font-bold text-[#2c241d] mb-4 flex items-center gap-2">
-              <span className="w-1 h-6 bg-[#d4af37] rounded"></span>
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>
+              <span className={styles.sectionTitleIndicator}></span>
               代理配置 (可选)
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="text-sm text-[#4a3f35] font-semibold block mb-2">HTTP 代理</label>
+                <label className={styles.label}>HTTP 代理</label>
                 <input
                   type="text"
                   value={httpProxy}
                   onChange={(e) => onHttpProxyChange(e.target.value)}
                   placeholder="http://127.0.0.1:7897"
-                  className="w-full px-4 py-2 rounded-lg border border-[#e8dcc4] bg-white text-[#4a3f35] placeholder-[#a08b73]/50 focus:border-[#d4af37] focus:ring-2 focus:ring-[#d4af37]/30 outline-none transition-all"
+                  className={styles.input}
                 />
               </div>
 
               <div>
-                <label className="text-sm text-[#4a3f35] font-semibold block mb-2">HTTPS 代理</label>
+                <label className={styles.label}>HTTPS 代理</label>
                 <input
                   type="text"
                   value={httpsProxy}
                   onChange={(e) => onHttpsProxyChange(e.target.value)}
                   placeholder="http://127.0.0.1:7897"
-                  className="w-full px-4 py-2 rounded-lg border border-[#e8dcc4] bg-white text-[#4a3f35] placeholder-[#a08b73]/50 focus:border-[#d4af37] focus:ring-2 focus:ring-[#d4af37]/30 outline-none transition-all"
+                  className={styles.input}
                 />
               </div>
 
               <button
                 type="button"
                 onClick={onSaveProxy}
-                className="w-full px-4 py-3 rounded-lg bg-[#d4af37] hover:bg-[#aa8c2c] text-white font-bold transition-colors"
+                className={clsx(styles.button, styles.buttonPrimary, "w-full")}
               >
                 保存代理配置
               </button>
 
               {proxyError && (
-                <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{proxyError}</div>
+                <div className={styles.errorMessage}>{proxyError}</div>
               )}
 
-              <p className="text-xs text-[#a08b73] bg-green-50 p-3 rounded-lg border border-green-200">
+              <p className={clsx(styles.infoBox, styles.infoBoxGreen)}>
                 💡 <strong>代理加速：</strong>配置代理可加速API请求，特别是在网络受限的环境中。留空则不使用代理。支持 Clash、V2Ray 等工具。
               </p>
             </div>
@@ -242,11 +243,11 @@ export const Settings: React.FC<SettingsProps> = ({
         </div>
 
         {/* 底部 */}
-        <div className="sticky bottom-0 p-6 border-t border-[#e8dcc4] bg-white flex justify-end gap-3">
+        <div className={styles.footer}>
           <button
             type="button"
             onClick={onClose}
-            className="px-6 py-2 rounded-lg border border-[#e8dcc4] text-[#4a3f35] font-semibold hover:bg-[#f5efe1] transition-colors"
+            className={clsx(styles.button, styles.buttonSecondary)}
           >
             关闭
           </button>

@@ -46,6 +46,8 @@ from agent.memory.store import EpisodicMemory, SemanticMemory, ShortTermMemory
 from agent.tools.mac_tools import build_default_tools
 from agent.tools.registry import ToolRegistry
 from agent.tools.validators import normalize_path, reset_runtime_allowed_roots, set_runtime_allowed_roots
+# Import unified prompt management
+from agent.prompts import BASE_SYSTEM_PROMPT, build_system_prompt_with_paths
 
 app = FastAPI()
 
@@ -240,12 +242,16 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 
 def build_system_prompt(user_paths: list[str]) -> str:
+    """
+    Build system prompt with user paths.
+    使用统一的提示词管理模块。
+    """
     if not user_paths:
-        paths_text = "未配置用户白名单。仅允许默认安全路径。"
+        # 未配置路径时，使用基础提示词
+        return BASE_SYSTEM_PROMPT
     else:
-        lines = "\n".join(f"- {path}" for path in user_paths)
-        paths_text = f"用户已配置可访问路径：\n{lines}"
-    return f"{BASE_SYSTEM_PROMPT}\n\n{paths_text}".strip()
+        # 有路径时，使用动态构建函数
+        return build_system_prompt_with_paths(user_paths)
 
 
 def load_user_paths_store() -> dict[str, object]:
@@ -612,12 +618,9 @@ try:
         )
         logger.info("✅ Memory manager initialized")
 
-    BASE_SYSTEM_PROMPT = """你是一个专业的 macOS 智能助手，可以帮助用户管理系统、排查问题、执行自动化任务。
-你可以使用提供的工具来获取信息或执行操作。
-在执行具有潜在风险的操作（如删除文件、修改系统设置）前，请务必仔细确认路径和参数。
-请用中文回复用户。
-"""
-
+    # BASE_SYSTEM_PROMPT is now imported from agent.prompts
+    # No need to redefine it here - using unified prompt management
+    
     # Initialize global client pool
     client_pool = ClientPool(max_size=50)
     logger.info("✅ Initialized LLM client pool")
@@ -627,7 +630,7 @@ except Exception as e:
     config = None
     registry = None
     memory_manager = None
-    BASE_SYSTEM_PROMPT = ""
+    # BASE_SYSTEM_PROMPT is imported from agent.prompts, no need to set here
     client_pool = None
 
 

@@ -1842,8 +1842,747 @@ class TimezoneConverterTool:
             return {"ok": False, "error": f"时区转换失败: {str(e)}"}
 
 
+# ============================================================================
+# 文本处理工具 - Text Processing Tools (新增)
+# ============================================================================
+
+
+@dataclass
+class GrepSearchTool:
+    """在文件中搜索正则表达式模式"""
+
+    name: str = "grep_search"
+    description: str = "在文件中搜索正则表达式模式，支持大小写敏感、行号显示、上下文显示等选项"
+    parameters: dict[str, Any] = None
+
+    def __post_init__(self) -> None:
+        if self.parameters is None:
+            self.parameters = {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "搜索的正则表达式模式",
+                    },
+                    "file_path": {"type": "string", "description": "要搜索的文件路径"},
+                    "case_insensitive": {
+                        "type": "boolean",
+                        "description": "是否忽略大小写（默认false）",
+                    },
+                    "show_line_numbers": {
+                        "type": "boolean",
+                        "description": "是否显示行号（默认true）",
+                    },
+                    "context_lines": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10,
+                        "description": "显示匹配行的上下文行数（默认0）",
+                    },
+                    "invert_match": {
+                        "type": "boolean",
+                        "description": "反向匹配（显示不匹配的行）",
+                    },
+                    "max_matches": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000,
+                        "description": "最大匹配数（默认100）",
+                    },
+                },
+                "required": ["pattern", "file_path"],
+            }
+
+    def execute(self, args: dict[str, Any]) -> dict[str, Any]:
+        pattern = args.get("pattern", "")
+        file_path_str = args.get("file_path", "")
+        case_insensitive = args.get("case_insensitive", False)
+        show_line_numbers = args.get("show_line_numbers", True)
+        context_lines = int(args.get("context_lines", 0))
+        invert_match = args.get("invert_match", False)
+        max_matches = int(args.get("max_matches", 100))
+
+        if not pattern:
+            return {"ok": False, "error": "pattern is required"}
+
+        try:
+            file_path = normalize_path(file_path_str)
+            ensure_path_allowed(file_path)
+
+            if not file_path.exists() or not file_path.is_file():
+                return {"ok": False, "error": "文件不存在或不是文件"}
+
+            # 构建grep命令
+            cmd = ["/usr/bin/grep"]
+
+            if case_insensitive:
+                cmd.append("-i")
+            if show_line_numbers:
+                cmd.append("-n")
+            if context_lines > 0:
+                cmd.extend(["-C", str(context_lines)])
+            if invert_match:
+                cmd.append("-v")
+
+            cmd.extend(["-m", str(max_matches)])  # 限制匹配数
+            cmd.extend(["-E", pattern, str(file_path)])  # 使用扩展正则
+
+            runner = CommandRunner(timeout_s=30)
+            result = runner.run(cmd)
+
+            # grep返回码: 0=找到匹配, 1=未找到匹配, 2=错误
+            if result.get("exit_code") in [0, 1]:
+                matches = result.get("stdout", "")
+                return {
+                    "ok": True,
+                    "data": {
+                        "matches": matches,
+                        "match_count": len(matches.splitlines()) if matches else 0,
+                        "pattern": pattern,
+                        "file": str(file_path),
+                    },
+                }
+            else:
+                return {
+                    "ok": False,
+                    "error": f"Grep执行失败: {result.get('stderr', 'Unknown error')}",
+                }
+
+        except Exception as e:
+            return {"ok": False, "error": f"Grep搜索失败: {str(e)}"}
+
+
+@dataclass
+class GrepRecursiveTool:
+    """递归搜索目录中的所有文件"""
+
+    name: str = "grep_recursive"
+    description: str = "递归搜索目录中的所有文件，支持文件类型过滤、排除目录等"
+    parameters: dict[str, Any] = None
+
+    def __post_init__(self) -> None:
+        if self.parameters is None:
+            self.parameters = {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "搜索的正则表达式模式",
+                    },
+                    "directory": {"type": "string", "description": "要搜索的目录路径"},
+                    "file_pattern": {
+                        "type": "string",
+                        "description": "文件名模式（如*.py, *.log）",
+                    },
+                    "exclude_dirs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "要排除的目录列表（如node_modules, .git）",
+                    },
+                    "case_insensitive": {
+                        "type": "boolean",
+                        "description": "是否忽略大小写",
+                    },
+                    "show_line_numbers": {
+                        "type": "boolean",
+                        "description": "是否显示行号（默认true）",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 500,
+                        "description": "最大结果数（默认100）",
+                    },
+                },
+                "required": ["pattern", "directory"],
+            }
+
+    def execute(self, args: dict[str, Any]) -> dict[str, Any]:
+        pattern = args.get("pattern", "")
+        directory_str = args.get("directory", "")
+        file_pattern = args.get("file_pattern", "*")
+        exclude_dirs = args.get("exclude_dirs", [".git", "node_modules", "__pycache__"])
+        case_insensitive = args.get("case_insensitive", False)
+        show_line_numbers = args.get("show_line_numbers", True)
+        max_results = int(args.get("max_results", 100))
+
+        if not pattern or not directory_str:
+            return {"ok": False, "error": "pattern and directory are required"}
+
+        try:
+            directory = normalize_path(directory_str)
+            ensure_path_allowed(directory)
+
+            if not directory.exists() or not directory.is_dir():
+                return {"ok": False, "error": "目录不存在或不是目录"}
+
+            # 构建grep命令
+            cmd = ["/usr/bin/grep", "-r"]  # 递归搜索
+
+            if case_insensitive:
+                cmd.append("-i")
+            if show_line_numbers:
+                cmd.append("-n")
+
+            cmd.extend(["-m", str(max_results)])  # 限制总匹配数
+            cmd.extend(["-E", pattern])  # 使用扩展正则
+
+            # 添加文件包含模式
+            if file_pattern and file_pattern != "*":
+                cmd.extend(["--include", file_pattern])
+
+            # 添加排除目录
+            for exclude_dir in exclude_dirs:
+                cmd.extend(["--exclude-dir", exclude_dir])
+
+            cmd.append(str(directory))
+
+            runner = CommandRunner(timeout_s=60)  # 递归搜索可能需要更长时间
+            result = runner.run(cmd)
+
+            # grep返回码: 0=找到匹配, 1=未找到匹配, 2=错误
+            if result.get("exit_code") in [0, 1]:
+                matches = result.get("stdout", "")
+                match_lines = matches.splitlines() if matches else []
+
+                # 解析结果，按文件分组
+                files_matched = {}
+                for line in match_lines:
+                    if ":" in line:
+                        file_part, content = line.split(":", 1)
+                        if file_part not in files_matched:
+                            files_matched[file_part] = []
+                        files_matched[file_part].append(content)
+
+                return {
+                    "ok": True,
+                    "data": {
+                        "matches": matches,
+                        "match_count": len(match_lines),
+                        "files_matched": len(files_matched),
+                        "pattern": pattern,
+                        "directory": str(directory),
+                    },
+                }
+            else:
+                return {
+                    "ok": False,
+                    "error": f"Grep执行失败: {result.get('stderr', 'Unknown error')}",
+                }
+
+        except Exception as e:
+            return {"ok": False, "error": f"递归搜索失败: {str(e)}"}
+
+
+@dataclass
+class TailLogTool:
+    """实时查看日志文件的最新内容"""
+
+    name: str = "tail_log"
+    description: str = "查看日志文件的最新内容，支持持续监控和过滤"
+    parameters: dict[str, Any] = None
+
+    def __post_init__(self) -> None:
+        if self.parameters is None:
+            self.parameters = {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "日志文件路径"},
+                    "lines": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000,
+                        "description": "显示的行数（默认100）",
+                    },
+                    "filter_pattern": {
+                        "type": "string",
+                        "description": "过滤模式（仅显示匹配的行）",
+                    },
+                },
+                "required": ["file_path"],
+            }
+
+    def execute(self, args: dict[str, Any]) -> dict[str, Any]:
+        file_path_str = args.get("file_path", "")
+        lines = int(args.get("lines", 100))
+        filter_pattern = args.get("filter_pattern", "")
+
+        if not file_path_str:
+            return {"ok": False, "error": "file_path is required"}
+
+        try:
+            file_path = normalize_path(file_path_str)
+            ensure_path_allowed(file_path)
+
+            if not file_path.exists() or not file_path.is_file():
+                return {"ok": False, "error": "文件不存在或不是文件"}
+
+            # 构建tail命令
+            cmd = ["/usr/bin/tail", "-n", str(lines), str(file_path)]
+
+            runner = CommandRunner(timeout_s=10)
+            result = runner.run(cmd)
+
+            if result.get("ok"):
+                content = result.get("stdout", "")
+
+                # 如果有过滤模式，进行过滤
+                if filter_pattern:
+                    filtered_lines = []
+                    for line in content.splitlines():
+                        if re.search(filter_pattern, line, re.IGNORECASE):
+                            filtered_lines.append(line)
+                    content = "\n".join(filtered_lines)
+
+                return {
+                    "ok": True,
+                    "data": {
+                        "content": content,
+                        "line_count": len(content.splitlines()),
+                        "file": str(file_path),
+                    },
+                }
+            else:
+                return result
+
+        except Exception as e:
+            return {"ok": False, "error": f"读取日志失败: {str(e)}"}
+
+
+@dataclass
+class PortKillerTool:
+    """查找并杀死占用指定端口的进程"""
+
+    name: str = "port_killer"
+    description: str = "查找并杀死占用指定端口的进程，开发者常用工具"
+    parameters: dict[str, Any] = None
+
+    def __post_init__(self) -> None:
+        if self.parameters is None:
+            self.parameters = {
+                "type": "object",
+                "properties": {
+                    "port": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65535,
+                        "description": "端口号",
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "强制杀死进程（默认false）",
+                    },
+                    "show_process_info": {
+                        "type": "boolean",
+                        "description": "显示进程详细信息（默认true）",
+                    },
+                },
+                "required": ["port"],
+            }
+
+    def execute(self, args: dict[str, Any]) -> dict[str, Any]:
+        port = int(args.get("port", 0))
+        force = args.get("force", False)
+        show_process_info = args.get("show_process_info", True)
+
+        if not port or port < 1 or port > 65535:
+            return {"ok": False, "error": "Invalid port number"}
+
+        try:
+            runner = CommandRunner(timeout_s=10)
+
+            # 查找占用端口的进程
+            # 使用lsof命令查找端口占用
+            result = runner.run(["/usr/sbin/lsof", "-ti", f":{port}"])
+
+            if not result.get("ok"):
+                return {
+                    "ok": True,
+                    "data": {"message": f"端口 {port} 未被占用"},
+                }
+
+            pids = result.get("stdout", "").strip().split("\n")
+            pids = [pid.strip() for pid in pids if pid.strip()]
+
+            if not pids:
+                return {
+                    "ok": True,
+                    "data": {"message": f"端口 {port} 未被占用"},
+                }
+
+            # 获取进程信息
+            process_info = []
+            if show_process_info:
+                for pid in pids:
+                    ps_result = runner.run(["/bin/ps", "-p", pid, "-o", "pid,comm,args"])
+                    if ps_result.get("ok"):
+                        process_info.append(ps_result.get("stdout", ""))
+
+            # 杀死进程
+            killed_pids = []
+            for pid in pids:
+                signal = "-9" if force else "-15"
+                kill_result = runner.run(["/bin/kill", signal, pid])
+                if kill_result.get("ok") or kill_result.get("exit_code") == 0:
+                    killed_pids.append(pid)
+
+            return {
+                "ok": True,
+                "data": {
+                    "port": port,
+                    "killed_pids": killed_pids,
+                    "process_info": process_info if show_process_info else [],
+                    "force": force,
+                },
+            }
+
+        except Exception as e:
+            return {"ok": False, "error": f"杀死进程失败: {str(e)}"}
+
+
+@dataclass
+class FindAdvancedTool:
+    """高级文件查找，支持按大小、修改时间、文件类型等条件搜索"""
+
+    name: str = "find_advanced"
+    description: str = "高级文件查找，支持按大小、修改时间、文件类型、权限等条件搜索"
+    parameters: dict[str, Any] = None
+
+    def __post_init__(self) -> None:
+        if self.parameters is None:
+            self.parameters = {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "搜索目录"},
+                    "name_pattern": {
+                        "type": "string",
+                        "description": "文件名模式（支持通配符，如*.py）",
+                    },
+                    "file_type": {
+                        "type": "string",
+                        "enum": ["file", "directory", "symlink"],
+                        "description": "文件类型",
+                    },
+                    "min_size": {
+                        "type": "string",
+                        "description": "最小文件大小（如100k, 1M, 1G）",
+                    },
+                    "max_size": {
+                        "type": "string",
+                        "description": "最大文件大小",
+                    },
+                    "modified_within": {
+                        "type": "string",
+                        "description": "修改时间范围（如1表示1天内，7表示7天内）",
+                    },
+                    "max_depth": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "description": "搜索深度",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000,
+                        "description": "最大结果数（默认100）",
+                    },
+                },
+                "required": ["directory"],
+            }
+
+    def execute(self, args: dict[str, Any]) -> dict[str, Any]:
+        directory_str = args.get("directory", "")
+        name_pattern = args.get("name_pattern", "")
+        file_type = args.get("file_type", "")
+        min_size = args.get("min_size", "")
+        max_size = args.get("max_size", "")
+        modified_within = args.get("modified_within", "")
+        max_depth = args.get("max_depth", 0)
+        max_results = int(args.get("max_results", 100))
+
+        if not directory_str:
+            return {"ok": False, "error": "directory is required"}
+
+        try:
+            directory = normalize_path(directory_str)
+            ensure_path_allowed(directory)
+
+            if not directory.exists() or not directory.is_dir():
+                return {"ok": False, "error": "目录不存在或不是目录"}
+
+            # 构建find命令
+            cmd = ["/usr/bin/find", str(directory)]
+
+            # 添加深度限制
+            if max_depth > 0:
+                cmd.extend(["-maxdepth", str(max_depth)])
+
+            # 添加文件类型
+            if file_type == "file":
+                cmd.extend(["-type", "f"])
+            elif file_type == "directory":
+                cmd.extend(["-type", "d"])
+            elif file_type == "symlink":
+                cmd.extend(["-type", "l"])
+
+            # 添加文件名模式
+            if name_pattern:
+                cmd.extend(["-name", name_pattern])
+
+            # 添加大小限制
+            if min_size:
+                cmd.extend(["-size", f"+{min_size}"])
+            if max_size:
+                cmd.extend(["-size", f"-{max_size}"])
+
+            # 添加修改时间
+            if modified_within:
+                cmd.extend(["-mtime", f"-{modified_within}"])
+
+            runner = CommandRunner(timeout_s=60)
+            result = runner.run(cmd)
+
+            if result.get("ok"):
+                files = result.get("stdout", "").strip().split("\n")
+                files = [f for f in files if f][:max_results]
+
+                return {
+                    "ok": True,
+                    "data": {
+                        "files": files,
+                        "count": len(files),
+                        "directory": str(directory),
+                    },
+                }
+            else:
+                return result
+
+        except Exception as e:
+            return {"ok": False, "error": f"文件查找失败: {str(e)}"}
+
+
+@dataclass
+class DiffTool:
+    """对比两个文件或目录的差异"""
+
+    name: str = "diff_files"
+    description: str = "对比两个文件或目录的差异，生成易读的差异报告"
+    parameters: dict[str, Any] = None
+
+    def __post_init__(self) -> None:
+        if self.parameters is None:
+            self.parameters = {
+                "type": "object",
+                "properties": {
+                    "path1": {
+                        "type": "string",
+                        "description": "第一个文件/目录路径",
+                    },
+                    "path2": {
+                        "type": "string",
+                        "description": "第二个文件/目录路径",
+                    },
+                    "unified": {
+                        "type": "boolean",
+                        "description": "使用统一格式（默认true）",
+                    },
+                    "context_lines": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10,
+                        "description": "上下文行数（默认3）",
+                    },
+                    "ignore_whitespace": {
+                        "type": "boolean",
+                        "description": "忽略空白字符差异",
+                    },
+                },
+                "required": ["path1", "path2"],
+            }
+
+    def execute(self, args: dict[str, Any]) -> dict[str, Any]:
+        path1_str = args.get("path1", "")
+        path2_str = args.get("path2", "")
+        unified = args.get("unified", True)
+        context_lines = int(args.get("context_lines", 3))
+        ignore_whitespace = args.get("ignore_whitespace", False)
+
+        if not path1_str or not path2_str:
+            return {"ok": False, "error": "path1 and path2 are required"}
+
+        try:
+            path1 = normalize_path(path1_str)
+            path2 = normalize_path(path2_str)
+            ensure_path_allowed(path1)
+            ensure_path_allowed(path2)
+
+            if not path1.exists() or not path2.exists():
+                return {"ok": False, "error": "一个或两个路径不存在"}
+
+            # 构建diff命令
+            cmd = ["/usr/bin/diff"]
+
+            if unified:
+                cmd.extend(["-u", f"-U{context_lines}"])
+
+            if ignore_whitespace:
+                cmd.append("-w")
+
+            cmd.extend([str(path1), str(path2)])
+
+            runner = CommandRunner(timeout_s=45)
+            result = runner.run(cmd)
+
+            # diff返回码: 0=无差异, 1=有差异, 2=错误
+            if result.get("exit_code") in [0, 1]:
+                diff_output = result.get("stdout", "")
+                has_differences = result.get("exit_code") == 1
+
+                return {
+                    "ok": True,
+                    "data": {
+                        "diff": diff_output,
+                        "has_differences": has_differences,
+                        "path1": str(path1),
+                        "path2": str(path2),
+                    },
+                }
+            else:
+                return {
+                    "ok": False,
+                    "error": f"Diff执行失败: {result.get('stderr', 'Unknown error')}",
+                }
+
+        except Exception as e:
+            return {"ok": False, "error": f"文件对比失败: {str(e)}"}
+
+
+@dataclass
+class ExecuteShellCommandTool:
+    """执行任意Shell命令 - 像人类一样使用命令行"""
+
+    name: str = "execute_shell_command"
+    description: str = "执行任意Shell命令，支持管道、重定向等Shell特性。注意：危险命令会被拒绝执行"
+    parameters: dict[str, Any] = None
+
+    def __post_init__(self) -> None:
+        if self.parameters is None:
+            self.parameters = {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "要执行的Shell命令（支持管道、重定向等）",
+                    },
+                    "working_directory": {
+                        "type": "string",
+                        "description": "工作目录（可选，默认为当前目录）",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "超时时间（秒，默认60秒）",
+                    },
+                },
+                "required": ["command"],
+            }
+
+    def _is_dangerous_command(self, command: str) -> tuple[bool, str]:
+        """检查命令是否危险"""
+        dangerous_patterns = [
+            ("rm -rf /", "禁止删除根目录"),
+            ("rm -rf /*", "禁止删除根目录下所有文件"),
+            ("mkfs", "禁止格式化磁盘"),
+            ("dd if=/dev/zero", "禁止危险的dd操作"),
+            (":(){ :|:& };:", "禁止fork炸弹"),
+            ("> /dev/sda", "禁止直接写入磁盘设备"),
+            ("chmod -R 777 /", "禁止修改根目录权限"),
+            ("chown -R", "禁止递归修改所有权"),
+        ]
+
+        command_lower = command.lower().strip()
+        for pattern, reason in dangerous_patterns:
+            if pattern.lower() in command_lower:
+                return True, reason
+
+        return False, ""
+
+    def execute(self, args: dict[str, Any]) -> dict[str, Any]:
+        command = args.get("command", "").strip()
+        working_dir = args.get("working_directory", "")
+        timeout = int(args.get("timeout", 60))
+
+        if not command:
+            return {"ok": False, "error": "command is required"}
+
+        # 安全检查
+        is_dangerous, reason = self._is_dangerous_command(command)
+        if is_dangerous:
+            return {
+                "ok": False,
+                "error": f"危险命令被拒绝: {reason}",
+                "command": command,
+            }
+
+        try:
+            # 处理工作目录
+            cwd = None
+            if working_dir:
+                wd_path = normalize_path(working_dir)
+                ensure_path_allowed(wd_path)
+                if not wd_path.exists() or not wd_path.is_dir():
+                    return {"ok": False, "error": "工作目录不存在或不是目录"}
+                cwd = str(wd_path)
+
+            # 执行命令（使用shell=True以支持管道、重定向等）
+            proc = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=cwd,
+            )
+
+            return {
+                "ok": proc.returncode == 0,
+                "stdout": proc.stdout.strip(),
+                "stderr": proc.stderr.strip(),
+                "exit_code": proc.returncode,
+                "command": command,
+                "working_directory": cwd or "当前目录",
+            }
+
+        except subprocess.TimeoutExpired:
+            return {
+                "ok": False,
+                "error": f"命令执行超时（{timeout}秒）",
+                "command": command,
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "error": f"命令执行失败: {str(e)}",
+                "command": command,
+            }
+
+
 def build_default_tools() -> list[Any]:
-    """构建默认工具集 - 共47个工具，覆盖工作生活的方方面面"""
+    """构建默认工具集 - 共50个工具，覆盖工作生活的方方面面
+    
+    核心工具:
+    - ExecuteShellCommandTool: 执行任意Shell命令（支持管道、重定向，内置安全检查）
+    
+    高级工具:
+    - GrepSearchTool: 在文件中搜索正则表达式
+    - GrepRecursiveTool: 递归搜索目录
+    - TailLogTool: 查看日志文件
+    - FindAdvancedTool: 高级文件查找
+    - DiffTool: 文件对比
+    - PortKillerTool: 杀死占用端口的进程
+    """
     return [
         # ============================================================
         # 系统信息与监控工具 (System Information & Monitoring)
@@ -1969,4 +2708,23 @@ def build_default_tools() -> list[Any]:
             parameters={"type": "object", "properties": {}, "required": []},
             command=["/bin/ls", "-1", "/Applications"],
         ),
+        # ============================================================
+        # 文本处理工具 (Text Processing) - 新增
+        # ============================================================
+        GrepSearchTool(),  # 在文件中搜索正则表达式
+        GrepRecursiveTool(),  # 递归搜索目录
+        TailLogTool(),  # 查看日志文件
+        # ============================================================
+        # 高级文件操作 (Advanced File Operations) - 新增
+        # ============================================================
+        FindAdvancedTool(),  # 高级文件查找
+        DiffTool(),  # 文件对比
+        # ============================================================
+        # 开发者工具增强 (Developer Tools Enhanced) - 新增
+        # ============================================================
+        PortKillerTool(),  # 杀死占用端口的进程
+        # ============================================================
+        # 通用命令执行 (Universal Command Execution) - 核心功能
+        # ============================================================
+        ExecuteShellCommandTool(),  # 执行任意Shell命令
     ]

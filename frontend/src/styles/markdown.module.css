@@ -1,18 +1,18 @@
 /**
  * Markdown 样式模块
- * 路径: frontend/src/styles/markdown.css
+ * 路径: frontend/src/styles/markdown.module.css
  * 功能: 为 React Markdown 提供全面的样式支持，包括标题、列表、表格、代码块、引用等所有常见格式
  */
 
 /* ==================== 基础样式 ==================== */
-.markdown-content {
+.markdownContent {
   color: #4a3f35;
   line-height: 1.75;
   font-family: 'Georgia', 'Times New Roman', serif;
 }
 
 /* ==================== 标题样式 ==================== */
-.markdown-content h1 {
+.markdownContent h1 {
   font-size: 1.875rem;
   font-weight: 700;
   color: #2c241d;
@@ -23,7 +23,7 @@
   font-family: 'Georgia', 'Times New Roman', serif;
 }
 
-.markdown-content h2 {
+.markdownContent h2 {
   font-size: 1.5rem;
   font-weight: 700;
   color: #2c241d;
@@ -34,7 +34,7 @@
   font-family: 'Georgia', 'Times New Roman', serif;
 }
 
-.markdown-content h3 {
+.markdownContent h3 {
   font-size: 1.25rem;
   font-weight: 600;
   color: #2c241d;
@@ -43,7 +43,7 @@
   font-family: 'Georgia', 'Times New Roman', serif;
 }
 
-.markdown-content h4 {
+.markdownContent h4 {
   font-size: 1.125rem;
   font-weight: 600;
   color: #4a3f35;
@@ -52,7 +52,7 @@
   font-family: 'Georgia', 'Times New Roman', serif;
 }
 
-.markdown-content h5 {
+.markdownContent h5 {
   font-size: 1rem;
   font-weight: 600;
   color: #4a3f35;
@@ -61,7 +61,7 @@
   font-family: 'Georgia', 'Times New Roman', serif;
 }
 
-.markdown-content h6 {
+.markdownContent h6 {
   font-size: 0.875rem;
   font-weight: 600;
   color: #4a3f35;
@@ -73,8 +73,8 @@
 }
 
 /* 标题前的装饰 */
-.markdown-content h1::before,
-.markdown-content h2::before {
+.markdownContent h1::before,
+.markdownContent h2::before {
   content: '';
   display: inline-block;
   width: 0.25rem;
@@ -86,24 +86,24 @@
 }
 
 /* ==================== 段落样式 ==================== */
-.markdown-content p {
+.markdownContent p {
   color: #4a3f35;
   margin-bottom: 1rem;
   line-height: 1.75;
 }
 
-.markdown-content p:last-child {
+.markdownContent p:last-child {
   margin-bottom: 0;
 }
 
 /* 段落内的代码 */
-.markdown-content p code {
+.markdownContent p code {
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 /* ==================== 链接样式 ==================== */
-.markdown-content a {
+.markdownContent a {
   color: #d4af37;
   text-decoration: underline;
   text-decoration-color: rgba(212, 175, 55, 0.3);
@@ -112,53 +112,53 @@
   transition: all 0.2s;
 }
 
-.markdown-content a:hover {
+.markdownContent a:hover {
   text-decoration-color: #d4af37;
   color: #aa8c2c;
   box-shadow: 0 2px 8px rgba(212, 175, 55, 0.2);
 }
 
 /* ==================== 强调样式 ==================== */
-.markdown-content strong {
+.markdownContent strong {
   font-weight: 700;
   color: #2c241d;
 }
 
-.markdown-content em {
+.markdownContent em {
   font-style: italic;
   color: #4a3f35;
 }
 
-.markdown-content strong em,
-.markdown-content em strong {
+.markdownContent strong em,
+.markdownContent em strong {
   font-weight: 700;
   font-style: italic;
   color: #2c241d;
 }
 
 /* 删除线 */
-.markdown-content del {
+.markdownContent del {
   text-decoration: line-through;
   opacity: 0.6;
 }
 
 /* ==================== 列表样式 ==================== */
 /* 无序列表 */
-.markdown-content ul {
+.markdownContent ul {
   list-style: none;
   margin: 1rem 0;
   margin-left: 0;
   padding-left: 0;
 }
 
-.markdown-content ul li {
+.markdownContent ul li {
   position: relative;
   padding-left: 1.5rem;
   margin-bottom: 0.5rem;
   line-height: 1.75;
 }
 
-.markdown-content ul li::before {
+.markdownContent ul li::before {
   content: '';
   position: absolute;
   left: 0;
@@ -171,23 +171,23 @@
 }
 
 /* 嵌套列表 */
-.markdown-content ul ul {
+.markdownContent ul ul {
   margin-top: 0.5rem;
   margin-bottom: 0;
   margin-left: 1rem;
 }
 
-.markdown-content ul ul li::before {
+.markdownContent ul ul li::before {
   background-color: #aa8c2c;
   width: 0.3rem;
   height: 0.3rem;
 }
 
-.markdown-content ul ul ul {
+.markdownContent ul ul ul {
   margin-left: 1rem;
 }
 
-.markdown-content ul ul ul li::before {
+.markdownContent ul ul ul li::before {
   background-color: transparent;
   border: 1.5px solid #d4af37;
   width: 0.3rem;
@@ -195,7 +195,7 @@
 }
 
 /* 有序列表 */
-.markdown-content ol {
+.markdownContent ol {
   list-style: none;
   margin: 1rem 0;
   margin-left: 0;
@@ -203,12 +203,12 @@
 }
 
 /* 一级列表 */
-.markdown-content > ol,
-.markdown-content > * > ol {
+.markdownContent > ol,
+.markdownContent > * > ol {
   counter-reset: item;
 }
 
-.markdown-content ol > li {
+.markdownContent ol > li {
   position: relative;
   padding-left: 2rem;
   margin-bottom: 0.5rem;
@@ -216,7 +216,7 @@
   line-height: 1.75;
 }
 
-.markdown-content ol > li::before {
+.markdownContent ol > li::before {
   content: counter(item) '.';
   position: absolute;
   left: 0;
@@ -228,43 +228,43 @@
 }
 
 /* 嵌套有序列表 - 二级 */
-.markdown-content ol ol {
+.markdownContent ol ol {
   margin-top: 0.5rem;
   margin-bottom: 0;
   margin-left: 1rem;
   counter-reset: subitem;
 }
 
-.markdown-content ol ol > li {
+.markdownContent ol ol > li {
   counter-increment: subitem;
   padding-left: 2.5rem;
 }
 
-.markdown-content ol ol > li::before {
+.markdownContent ol ol > li::before {
   content: counter(item) '.' counter(subitem);
   color: #aa8c2c;
   font-size: 0.8rem;
 }
 
 /* 嵌套有序列表 - 三级 */
-.markdown-content ol ol ol {
+.markdownContent ol ol ol {
   counter-reset: subsubitem;
   margin-left: 1rem;
 }
 
-.markdown-content ol ol ol > li {
+.markdownContent ol ol ol > li {
   counter-increment: subsubitem;
   padding-left: 3rem;
 }
 
-.markdown-content ol ol ol > li::before {
+.markdownContent ol ol ol > li::before {
   content: counter(item) '.' counter(subitem) '.' counter(subsubitem);
   color: #4a3f35;
   font-size: 0.75rem;
 }
 
 /* ==================== 任务列表样式 ==================== */
-.markdown-content input[type="checkbox"] {
+.markdownContent input[type="checkbox"] {
   margin-right: 0.5rem;
   width: 1rem;
   height: 1rem;
@@ -274,21 +274,21 @@
   accent-color: #d4af37;
 }
 
-.markdown-content input[type="checkbox"]:checked {
+.markdownContent input[type="checkbox"]:checked {
   background-color: #d4af37;
 }
 
-.markdown-content li:has(input[type="checkbox"]) {
+.markdownContent li:has(input[type="checkbox"]) {
   display: flex;
   align-items: flex-start;
 }
 
-.markdown-content li:has(input[type="checkbox"])::before {
+.markdownContent li:has(input[type="checkbox"])::before {
   display: none;
 }
 
 /* ==================== 引用样式 ==================== */
-.markdown-content blockquote {
+.markdownContent blockquote {
   position: relative;
   margin: 1.5rem 0;
   padding-left: 1.5rem;
@@ -301,7 +301,7 @@
   font-style: italic;
 }
 
-.markdown-content blockquote::before {
+.markdownContent blockquote::before {
   content: '"';
   position: absolute;
   top: -0.5rem;
@@ -312,25 +312,25 @@
   line-height: 1;
 }
 
-.markdown-content blockquote p {
+.markdownContent blockquote p {
   color: #4a3f35;
   margin-bottom: 0.5rem;
 }
 
-.markdown-content blockquote p:last-child {
+.markdownContent blockquote p:last-child {
   margin-bottom: 0;
 }
 
-.markdown-content blockquote > *:first-child {
+.markdownContent blockquote > *:first-child {
   margin-top: 0;
 }
 
-.markdown-content blockquote > *:last-child {
+.markdownContent blockquote > *:last-child {
   margin-bottom: 0;
 }
 
 /* 嵌套引用 */
-.markdown-content blockquote blockquote {
+.markdownContent blockquote blockquote {
   margin-top: 0.75rem;
   border-left: 2px solid #aa8c2c;
   background-color: rgba(253, 251, 247, 0.5);
@@ -338,7 +338,7 @@
 
 /* ==================== 代码样式 ==================== */
 /* 行内代码 */
-.markdown-content code {
+.markdownContent code {
   padding: 0.125rem 0.375rem;
   background-color: #f5efe1;
   color: #d4af37;
@@ -352,8 +352,8 @@
   max-width: 100%;
 }
 
-/* 代码块 */
-.markdown-content pre {
+/* 代码块 - 修复 overflow 问题，允许横向滚动 */
+.markdownContent pre {
   margin: 1rem 0;
   padding: 1rem;
   background-color: #2c241d;
@@ -367,10 +367,11 @@
   word-wrap: break-word;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
-.markdown-content pre code {
+.markdownContent pre code {
   display: block;
   padding: 0;
   background-color: transparent;
@@ -383,11 +384,12 @@
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 /* 代码块复制按钮区域 */
-.markdown-content pre::before {
+.markdownContent pre::before {
   content: '';
   position: absolute;
   top: 0.5rem;
@@ -398,22 +400,22 @@
 }
 
 /* 代码块滚动条 */
-.markdown-content pre::-webkit-scrollbar {
+.markdownContent pre::-webkit-scrollbar {
   height: 0.5rem;
 }
 
-.markdown-content pre::-webkit-scrollbar-track {
+.markdownContent pre::-webkit-scrollbar-track {
   background-color: #1a1410;
   border-radius: 0.25rem;
 }
 
-.markdown-content pre::-webkit-scrollbar-thumb {
+.markdownContent pre::-webkit-scrollbar-thumb {
   background-color: #d4af37;
   border-radius: 0.25rem;
 }
 
 /* ==================== 表格样式 ==================== */
-.markdown-content table {
+.markdownContent table {
   width: 100%;
   margin: 1.5rem 0;
   border-collapse: collapse;
@@ -423,18 +425,18 @@
   display: block;
 }
 
-.markdown-content table thead,
-.markdown-content table tbody {
+.markdownContent table thead,
+.markdownContent table tbody {
   display: table;
   width: 100%;
   table-layout: fixed;
 }
 
-.markdown-content thead {
+.markdownContent thead {
   background: linear-gradient(to right, #d4af37, #aa8c2c);
 }
 
-.markdown-content thead th {
+.markdownContent thead th {
   padding: 0.75rem 1rem;
   text-align: left;
   color: white;
@@ -444,46 +446,46 @@
   letter-spacing: 0.05em;
 }
 
-.markdown-content tbody tr {
+.markdownContent tbody tr {
   border-bottom: 1px solid #e8dcc4;
   transition: background-color 0.2s;
 }
 
-.markdown-content tbody tr:hover {
+.markdownContent tbody tr:hover {
   background-color: rgba(245, 239, 225, 0.3);
 }
 
-.markdown-content tbody tr:last-child {
+.markdownContent tbody tr:last-child {
   border-bottom: 0;
 }
 
-.markdown-content tbody td {
+.markdownContent tbody td {
   padding: 0.75rem 1rem;
   color: #4a3f35;
 }
 
 /* 表格对齐 */
-.markdown-content th[align="center"],
-.markdown-content td[align="center"] {
+.markdownContent th[align="center"],
+.markdownContent td[align="center"] {
   text-align: center;
 }
 
-.markdown-content th[align="right"],
-.markdown-content td[align="right"] {
+.markdownContent th[align="right"],
+.markdownContent td[align="right"] {
   text-align: right;
 }
 
 /* 表格斑马纹 */
-.markdown-content tbody tr:nth-child(even) {
+.markdownContent tbody tr:nth-child(even) {
   background-color: #fdfbf7;
 }
 
-.markdown-content tbody tr:nth-child(odd) {
+.markdownContent tbody tr:nth-child(odd) {
   background-color: rgba(255, 255, 255, 0.6);
 }
 
 /* ==================== 水平分割线 ==================== */
-.markdown-content hr {
+.markdownContent hr {
   margin: 2rem 0;
   border: 0;
   height: 1px;
@@ -491,7 +493,7 @@
 }
 
 /* 装饰性分割线 */
-.markdown-content hr::after {
+.markdownContent hr::after {
   content: '✦';
   display: block;
   text-align: center;
@@ -501,7 +503,7 @@
 }
 
 /* ==================== 图片样式 ==================== */
-.markdown-content img {
+.markdownContent img {
   max-width: 100%;
   height: auto;
   border-radius: 0.75rem;
@@ -511,30 +513,30 @@
   transition: all 0.3s;
 }
 
-.markdown-content img:hover {
+.markdownContent img:hover {
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
   border-color: #d4af37;
 }
 
 /* ==================== 脚注样式 ==================== */
-.markdown-content sup {
+.markdownContent sup {
   color: #d4af37;
   font-weight: 700;
 }
 
-.markdown-content .footnotes {
+.markdownContent .footnotes {
   margin-top: 2rem;
   padding-top: 1rem;
   border-top: 2px solid #e8dcc4;
   font-size: 0.875rem;
 }
 
-.markdown-content .footnotes ol li {
+.markdownContent .footnotes ol li {
   margin-bottom: 0.25rem;
 }
 
 /* ==================== 键盘按键样式 ==================== */
-.markdown-content kbd {
+.markdownContent kbd {
   display: inline-block;
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
@@ -546,7 +548,7 @@
 }
 
 /* ==================== 标记/高亮样式 ==================== */
-.markdown-content mark {
+.markdownContent mark {
   background-color: rgba(212, 175, 55, 0.2);
   color: #2c241d;
   padding: 0 0.25rem;
@@ -554,14 +556,14 @@
 }
 
 /* ==================== 缩写样式 ==================== */
-.markdown-content abbr {
+.markdownContent abbr {
   border-bottom: 2px dotted #d4af37;
   cursor: help;
   text-decoration: none;
 }
 
 /* ==================== 详情/折叠样式 ==================== */
-.markdown-content details {
+.markdownContent details {
   margin: 1rem 0;
   padding: 1rem;
   background-color: rgba(245, 239, 225, 0.3);
@@ -569,7 +571,7 @@
   border: 1px solid #e8dcc4;
 }
 
-.markdown-content summary {
+.markdownContent summary {
   cursor: pointer;
   font-weight: 600;
   color: #2c241d;
@@ -577,72 +579,72 @@
   user-select: none;
 }
 
-.markdown-content summary:hover {
+.markdownContent summary:hover {
   color: #d4af37;
 }
 
-.markdown-content details[open] summary {
+.markdownContent details[open] summary {
   margin-bottom: 0.75rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid #e8dcc4;
 }
 
 /* ==================== 定义列表样式 ==================== */
-.markdown-content dl {
+.markdownContent dl {
   margin: 1rem 0;
 }
 
-.markdown-content dt {
+.markdownContent dt {
   font-weight: 700;
   color: #2c241d;
   margin-top: 1rem;
   margin-bottom: 0.25rem;
 }
 
-.markdown-content dd {
+.markdownContent dd {
   margin-left: 1.5rem;
   margin-bottom: 0.5rem;
   color: #4a3f35;
 }
 
 /* ==================== 数学公式样式 (如果使用) ==================== */
-.markdown-content .math {
+.markdownContent .math {
   overflow-x: auto;
   margin: 1rem 0;
 }
 
-.markdown-content .math-inline {
+.markdownContent .math-inline {
   display: inline-block;
   padding: 0 0.25rem;
 }
 
 /* ==================== 警告框样式 ==================== */
-.markdown-content .alert {
+.markdownContent .alert {
   margin: 1rem 0;
   padding: 1rem;
   border-radius: 0.75rem;
   border-left: 4px solid;
 }
 
-.markdown-content .alert-info {
+.markdownContent .alert-info {
   background-color: #eff6ff;
   border-color: #60a5fa;
   color: #1e3a8a;
 }
 
-.markdown-content .alert-warning {
+.markdownContent .alert-warning {
   background-color: #fefce8;
   border-color: #facc15;
   color: #713f12;
 }
 
-.markdown-content .alert-error {
+.markdownContent .alert-error {
   background-color: #fef2f2;
   border-color: #f87171;
   color: #7f1d1d;
 }
 
-.markdown-content .alert-success {
+.markdownContent .alert-success {
   background-color: #f0fdf4;
   border-color: #4ade80;
   color: #14532d;
@@ -650,48 +652,48 @@
 
 /* ==================== 响应式调整 ==================== */
 @media (max-width: 768px) {
-  .markdown-content {
+  .markdownContent {
     font-size: 0.875rem;
   }
 
-  .markdown-content h1 {
+  .markdownContent h1 {
     font-size: 1.5rem;
   }
 
-  .markdown-content h2 {
+  .markdownContent h2 {
     font-size: 1.25rem;
   }
 
-  .markdown-content h3 {
+  .markdownContent h3 {
     font-size: 1.125rem;
   }
 
-  .markdown-content pre {
+  .markdownContent pre {
     font-size: 0.75rem;
   }
 
-  .markdown-content table {
+  .markdownContent table {
     font-size: 0.875rem;
   }
 }
 
 /* ==================== 打印样式 ==================== */
 @media print {
-  .markdown-content {
+  .markdownContent {
     color: black;
   }
 
-  .markdown-content a {
+  .markdownContent a {
     color: #2563eb;
     text-decoration: underline;
   }
 
-  .markdown-content pre {
+  .markdownContent pre {
     border: 1px solid #d1d5db;
     background-color: #f3f4f6;
   }
 
-  .markdown-content pre code {
+  .markdownContent pre code {
     color: black;
   }
 }
@@ -708,57 +710,38 @@
   }
 }
 
-.markdown-content > * {
+.markdownContent > * {
   animation: fadeIn 0.3s ease-out;
 }
 
 /* ==================== 选中文本样式 ==================== */
-.markdown-content ::selection {
+.markdownContent ::selection {
   background-color: rgba(212, 175, 55, 0.3);
   color: #2c241d;
 }
 
-/* ==================== 工具组件特殊样式 ==================== */
-/* 强制 pre 标签宽度限制，防止内容撑大容器 */
-pre {
-  max-width: 100%;
-  width: 100%;
-  box-sizing: border-box;
-  overflow: hidden;
-}
-
-/* 工具组件内的 pre 标签强制换行 */
-div[class*="p-2"] > pre,
-div[class*="p-3"] > pre {
-  word-wrap: break-word !important;
-  white-space: pre-wrap !important;
-  overflow-wrap: break-word !important;
-  display: block;
-  width: 100%;
-}
-
 /* ==================== 代码高亮主题 (基础) ==================== */
-.markdown-content pre code .hljs-keyword {
+.markdownContent pre code .hljs-keyword {
   color: #d4af37;
 }
 
-.markdown-content pre code .hljs-string {
+.markdownContent pre code .hljs-string {
   color: #a8e6cf;
 }
 
-.markdown-content pre code .hljs-number {
+.markdownContent pre code .hljs-number {
   color: #ffd3b6;
 }
 
-.markdown-content pre code .hljs-comment {
+.markdownContent pre code .hljs-comment {
   color: #a08b73;
   font-style: italic;
 }
 
-.markdown-content pre code .hljs-function {
+.markdownContent pre code .hljs-function {
   color: #ffaaa5;
 }
 
-.markdown-content pre code .hljs-operator {
+.markdownContent pre code .hljs-operator {
   color: #ff8b94;
 }

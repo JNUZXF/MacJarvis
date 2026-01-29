@@ -1,0 +1,73 @@
+/**
+ * 聊天消息组件样式模块
+ * 路径: frontend/src/components/ChatMessage.module.css
+ * 功能: 定义聊天消息的样式，包括消息容器、气泡、用户/助手消息区分等
+ */
+
+.messageWrapper {
+  display: flex;
+}
+
+.messageWrapperUser {
+  justify-content: flex-end;
+}
+
+.messageWrapperAssistant {
+  justify-content: flex-start;
+}
+
+.messageContainer {
+  max-width: 80%;
+  overflow: hidden;
+}
+
+.messageContainerWithTools {
+  max-width: 95%;
+}
+
+.messageBubble {
+  position: relative;
+  padding: 1.25rem;
+  border-radius: 1.5rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  border: 1px solid;
+  transition: transform 0.2s;
+  overflow: hidden;
+}
+
+.messageBubble:hover {
+  transform: scale(1.01);
+}
+
+.userBubble {
+  background-color: #f5efe1;
+  border-color: rgba(212, 175, 55, 0.2);
+  border-top-right-radius: 0;
+  color: #4a3f35;
+}
+
+.assistantBubble {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px);
+  border-color: rgba(255, 255, 255, 0.4);
+  border-top-left-radius: 0;
+  color: #2c241d;
+}
+
+.assistantIcon {
+  position: absolute;
+  top: -1rem;
+  left: -0.5rem;
+  background-color: white;
+  border-radius: 9999px;
+  padding: 0.25rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  border: 1px solid #eee;
+}
+
+.contentArea {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow: hidden;
+}

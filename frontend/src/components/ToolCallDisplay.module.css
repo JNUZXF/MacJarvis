@@ -1,0 +1,117 @@
+/**
+ * 工具调用显示组件样式模块
+ * 路径: frontend/src/components/ToolCallDisplay.module.css
+ * 功能: 定义工具调用显示的样式，包括容器、头部、参数和结果区域，支持代码块滚动
+ */
+
+.toolContainer {
+  border: 1px solid #e8dcc4;
+  border-radius: 0.75rem;
+  margin: 0.5rem 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.toolHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(253, 251, 247, 0.8);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.toolHeader:hover {
+  background-color: #f5efe1;
+}
+
+.toolContent {
+  padding: 0.75rem;
+  font-size: 0.75rem;
+  font-family: monospace;
+  border-top: 1px solid #e8dcc4;
+  width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.paramSection {
+  margin-bottom: 0.5rem;
+  width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.paramLabel {
+  color: #a08b73;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.paramContainer {
+  background-color: #f5efe1;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: #4a3f35;
+  border: 1px solid #e8dcc4;
+  width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.resultSection {
+  width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.resultLabel {
+  color: #a08b73;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.resultContainer {
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid;
+  width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.resultContainerSuccess {
+  background-color: #f5efe1;
+  color: #4a3f35;
+  border-color: #e8dcc4;
+}
+
+.resultContainerFailed {
+  background-color: #fef2f2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+
+.codeBlock {
+  max-width: 100%;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}

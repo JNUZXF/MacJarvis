@@ -1,0 +1,90 @@
+/**
+ * App 主布局样式模块
+ * 路径: frontend/src/App.module.css
+ * 功能: 定义主应用容器的布局样式，包括背景层、侧边栏、主内容区等
+ */
+
+.container {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  background-color: #fdfbf7;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  color: #4a3f35;
+  position: relative;
+}
+
+.backgroundLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.blob1 {
+  position: absolute;
+  top: -10%;
+  left: -10%;
+  width: 50%;
+  height: 50%;
+  background-color: #f5e6d3;
+  opacity: 0.3;
+  filter: blur(100px);
+  animation: blob-movement 20s infinite alternate linear;
+}
+
+.blob2 {
+  position: absolute;
+  bottom: -10%;
+  right: -10%;
+  width: 40%;
+  height: 40%;
+  background-color: #e3f2fd;
+  opacity: 0.4;
+  filter: blur(120px);
+  animation: blob-movement 25s infinite alternate-reverse linear;
+}
+
+.particle {
+  position: absolute;
+  background-color: rgba(255, 255, 255, 0.6);
+  border-radius: 9999px;
+  filter: blur(1px);
+  top: -5%;
+  opacity: 0.4;
+}
+
+.header {
+  height: 4rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rem;
+  border-bottom: 1px solid #e8dcc4;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+}
+
+.messagesSection {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem;
+  scroll-behavior: smooth;
+}
+
+.footer {
+  padding: 2rem;
+  padding-top: 0;
+  background: transparent;
+}
+
+.artifactsSidebar {
+  width: 20rem;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  border-left: 1px solid #e8dcc4;
+  background: rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(24px);
+}

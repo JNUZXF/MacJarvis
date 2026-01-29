@@ -1,0 +1,195 @@
+/**
+ * 侧边栏组件样式模块
+ * 路径: frontend/src/components/Sidebar.module.css
+ * 功能: 定义左侧边栏的样式，包括 Logo、新建按钮、用户信息、会话列表等
+ */
+
+.sidebar {
+  width: 18rem;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  border-right: 1px solid #e8dcc4;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(24px);
+}
+
+.logo {
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.logoIcon {
+  width: 2.5rem;
+  height: 2.5rem;
+  background: linear-gradient(to bottom right, #d4af37, #aa8c2c);
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.logoText {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: #2c241d;
+  font-style: italic;
+}
+
+.newChatButton {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background-color: #f5efe1;
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.2s;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.newChatButton:hover {
+  background-color: #eaddc0;
+}
+
+/* 图标旋转效果通过 Tailwind group-hover 实现 */
+
+.userInfo {
+  margin-bottom: 1.5rem;
+  padding: 0 1rem;
+}
+
+.userInfoLabel {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: #a08b73;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.userInfoValue {
+  font-size: 0.75rem;
+  color: #4a3f35;
+  word-break: break-all;
+  opacity: 0.7;
+}
+
+.sessionList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.sessionListLabel {
+  padding: 0.5rem 1rem;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: #a08b73;
+  font-weight: 700;
+}
+
+.sessionItem {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sessionItem:hover {
+  background-color: #fcf8ef;
+}
+
+.activeSession {
+  background-color: #fcf8ef;
+  border-left: 4px solid #d4af37;
+}
+
+.sessionIcon {
+  width: 1rem;
+  height: 1rem;
+  color: #a08b73;
+}
+
+.sessionTitle {
+  font-size: 0.875rem;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.emptySessions {
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  color: #a08b73;
+}
+
+.footer {
+  padding: 1rem;
+  border-top: 1px solid #e8dcc4;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.userAvatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  background: linear-gradient(to top right, #c7d2fe, #fde68a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  color: #374151;
+  border: 2px solid #d4af37;
+}
+
+.userInfoFooter {
+  flex: 1;
+}
+
+.userName {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.userRole {
+  font-size: 0.625rem;
+  opacity: 0.5;
+}
+
+.settingsButton {
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  transition: background-color 0.2s;
+}
+
+.settingsButton:hover {
+  background-color: #f5efe1;
+}
+
+.settingsIcon {
+  width: 1rem;
+  height: 1rem;
+  opacity: 0.4;
+  transition: opacity 0.2s;
+}
+
+.settingsButton:hover .settingsIcon {
+  opacity: 1;
+}

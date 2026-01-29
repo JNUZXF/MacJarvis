@@ -1,5 +1,5 @@
 # File: backend/app/api/v1/chat.py
-# Purpose: Chat API endpoints with SSE streaming
+# Purpose: Chat API endpoints with SSE streaming using Mac Agent Service
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import AsyncIterator
@@ -11,6 +11,9 @@ from app.services.chat_service import ChatService
 from app.services.user_service import UserService
 from app.dependencies import get_chat_service, get_user_service
 from app.core.tools.validators import set_runtime_allowed_roots, reset_runtime_allowed_roots
+
+# Import Mac Agent Service
+from agent.api_service import get_mac_agent_service
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()

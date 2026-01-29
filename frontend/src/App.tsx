@@ -15,33 +15,13 @@ import { ChatMessage } from './components/ChatMessage';
 import { Sidebar } from './components/Sidebar';
 import { Settings } from './components/Settings';
 import { v4 as uuidv4 } from 'uuid';
+import styles from './App.module.css';
 
 const modelOptions = [
   { value: 'openai/gpt-4o-mini', label: 'gpt-4o-mini' },
   { value: 'anthropic/claude-haiku-4.5', label: 'claude-haiku-4.5' },
   { value: 'google/gemini-2.5-flash', label: 'gemini-2.5-flash' },
 ];
-
-// 动画关键帧样式
-const animations = `
-  @keyframes float {
-    0% { transform: translateY(0px) rotate(0deg); }
-    50% { transform: translateY(-20px) rotate(5deg); }
-    100% { transform: translateY(0px) rotate(0deg); }
-  }
-  @keyframes blob-movement {
-    0% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
-    34% { border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%; }
-    67% { border-radius: 100% 60% 60% 100% / 100% 100% 60% 60%; }
-    100% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
-  }
-  @keyframes leaf-fall {
-    0% { transform: translate(0, -10%) rotate(0deg); opacity: 0; }
-    10% { opacity: 0.8; }
-    90% { opacity: 0.8; }
-    100% { transform: translate(100px, 110vh) rotate(360deg); opacity: 0; }
-  }
-`;
 
 interface Artifact {
   id: number;
@@ -571,34 +551,24 @@ function App() {
   const particles = Array.from({ length: 15 });
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-[#fdfbf7] font-serif text-[#4a3f35] relative">
-      <style>{animations}</style>
-
+    <div className={styles.container}>
       {/* 魔法动态背景 */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+      <div className={styles.backgroundLayer}>
         {/* 液态背景块 */}
-        <div 
-          className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-[#f5e6d3] opacity-30 blur-[100px]" 
-          style={{ animation: 'blob-movement 20s infinite alternate linear' }}
-        />
-        <div 
-          className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#e3f2fd] opacity-40 blur-[120px]" 
-          style={{ animation: 'blob-movement 25s infinite alternate-reverse linear' }}
-        />
+        <div className={styles.blob1} />
+        <div className={styles.blob2} />
         
         {/* 飘落的粒子 */}
         {particles.map((_, i) => (
           <div 
             key={i}
-            className="absolute bg-white/60 rounded-full blur-[1px]"
+            className={styles.particle}
             style={{
               left: `${Math.random() * 100}%`,
               width: `${Math.random() * 8 + 4}px`,
               height: `${Math.random() * 12 + 6}px`,
-              top: '-5%',
               animation: `leaf-fall ${Math.random() * 10 + 10}s linear infinite`,
               animationDelay: `${Math.random() * 10}s`,
-              opacity: 0.4
             }}
           />
         ))}
@@ -617,7 +587,7 @@ function App() {
       {/* 中间：主聊天区域 */}
       <main className="flex-1 flex flex-col z-10 relative">
         {/* 顶部工具栏 */}
-        <header className="h-16 flex items-center justify-between px-8 border-b border-[#e8dcc4] bg-white/10 backdrop-blur-md">
+        <header className={styles.header}>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
             <span className="text-sm font-medium opacity-70">系统核心已就绪</span>
@@ -625,7 +595,7 @@ function App() {
         </header>
 
         {/* 消息展示区 */}
-        <section className="flex-1 overflow-y-auto p-8 space-y-8 scroll-smooth">
+        <section className={`${styles.messagesSection} space-y-8`}>
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center space-y-6">
               <div className="w-20 h-20 bg-gradient-to-br from-[#d4af37] to-[#aa8c2c] rounded-2xl flex items-center justify-center shadow-xl">
@@ -645,7 +615,7 @@ function App() {
         </section>
 
         {/* 输入区域 */}
-        <footer className="p-8 pt-0 bg-transparent">
+        <footer className={styles.footer}>
           <form onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-4">
             {/* 附件上传 */}
             <div className="flex gap-3 items-center">
@@ -730,7 +700,7 @@ function App() {
       </main>
 
       {/* 右侧：Artifact 成果展示 (真理印记) */}
-      <aside className="w-80 flex flex-col z-10 border-l border-[#e8dcc4] bg-white/30 backdrop-blur-2xl">
+      <aside className={styles.artifactsSidebar}>
         <div className="p-6">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-lg font-bold italic text-[#2c241d] flex items-center gap-2">
