@@ -3,6 +3,7 @@
 import base64
 import json
 import logging
+import logging.handlers
 import os
 import sys
 import time
@@ -20,6 +21,19 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    # Load .env file from project root (two levels up from backend/server/)
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+        logging.info(f"✅ Loaded environment variables from {env_path}")
+    else:
+        logging.warning(f"⚠️  .env file not found at {env_path}")
+except ImportError:
+    logging.warning("⚠️  python-dotenv not installed, environment variables must be set manually")
 
 # Add backend to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -43,12 +57,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
 logger = logging.getLogger("mac_agent")
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(handler)
-logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    stream_handler.setLevel(LOG_LEVEL)
+    logger.addHandler(stream_handler)
+
+    app_log_handler = logging.handlers.TimedRotatingFileHandler(
+        filename=LOG_DIR / "backend_app.log",
+        when="midnight",
+        interval=1,
+        backupCount=14,
+        encoding="utf-8",
+    )
+    app_log_handler.setFormatter(formatter)
+    app_log_handler.setLevel(logging.INFO)
+    logger.addHandler(app_log_handler)
+
+    error_log_handler = logging.handlers.RotatingFileHandler(
+        filename=LOG_DIR / "backend_app_error.log",
+        maxBytes=10 * 1024 * 1024,
+        backupCount=10,
+        encoding="utf-8",
+    )
+    error_log_handler.setFormatter(formatter)
+    error_log_handler.setLevel(logging.ERROR)
+    logger.addHandler(error_log_handler)
+    logger.propagate = False
+logger.setLevel(LOG_LEVEL)
 
 
 # ============================================================================
@@ -473,6 +515,12 @@ async def global_exception_handler(request: Request, exc: Exception):
     """全局异常处理器，将错误转换为SSE格式"""
     # 如果是/api/chat端点，返回SSE格式的错误
     if request.url.path == "/api/chat":
+        log_event(
+            logging.ERROR,
+            "unhandled_exception",
+            path=str(request.url.path),
+            error=str(exc),
+        )
         error_message = f"Server error: {str(exc)}"
         return StreamingResponse(
             iter([f"event: error\ndata: {json.dumps(error_message)}\n\n"]),
@@ -495,6 +543,12 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """请求验证错误处理器"""
     if request.url.path == "/api/chat":
+        log_event(
+            logging.ERROR,
+            "validation_error",
+            path=str(request.url.path),
+            error=str(exc),
+        )
         error_message = f"Invalid request: {str(exc)}"
         return StreamingResponse(
             iter([f"event: error\ndata: {json.dumps(error_message)}\n\n"]),
@@ -516,6 +570,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     """HTTP异常处理器（包括404）"""
     if request.url.path.startswith("/api/"):
+        log_event(
+            logging.ERROR,
+            "http_exception",
+            path=str(request.url.path),
+            status_code=exc.status_code,
+            detail=str(exc.detail),
+        )
         error_message = f"API error ({exc.status_code}): {exc.detail}"
         return StreamingResponse(
             iter([f"event: error\ndata: {json.dumps(error_message)}\n\n"]),
@@ -822,6 +883,7 @@ async def chat_endpoint(request: ChatRequest):
     request_start = time.perf_counter()
     
     if not config or not registry or not client_pool:
+        log_event(logging.ERROR, "agent_not_initialized")
         return add_sse_headers(StreamingResponse(
             iter([f"event: error\ndata: {json.dumps('Agent not initialized')}\n\n"]),
             media_type="text/event-stream"
@@ -829,6 +891,7 @@ async def chat_endpoint(request: ChatRequest):
 
     selected_model = (request.model or config.model).strip()
     if not is_model_allowed(selected_model):
+        log_event(logging.ERROR, "unsupported_model", model=selected_model)
         return add_sse_headers(StreamingResponse(
             iter([f"event: error\ndata: {json.dumps('Unsupported model')}\n\n"]),
             media_type="text/event-stream"
@@ -1062,4 +1125,6 @@ async def chat_endpoint(request: ChatRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 默认使用18888端口（避免端口冲突）
+    port = int(os.getenv("BACKEND_PORT", "18888"))
+    uvicorn.run(app, host="0.0.0.0", port=port)

@@ -72,7 +72,8 @@ function App() {
     { id: 2, title: '自动化脚本集合', type: 'code', date: new Date().toLocaleDateString('zh-CN') }
   ]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const apiUrl = import.meta.env.VITE_API_URL || '';
+  // 默认使用18888端口（避免端口冲突）
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:18888';
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId),
@@ -378,11 +379,14 @@ function App() {
               };
 
               if (ev.event === 'content') {
-                msg.content += data;
-                const nextBlocks = msg.blocks || [];
+                msg.content = `${msg.content || ''}${data}`;
+                const nextBlocks = msg.blocks ? [...msg.blocks] : [];
                 const lastBlock = nextBlocks[nextBlocks.length - 1];
                 if (lastBlock?.type === 'content') {
-                  lastBlock.content += data;
+                  nextBlocks[nextBlocks.length - 1] = {
+                    ...lastBlock,
+                    content: `${lastBlock.content}${data}`,
+                  };
                 } else {
                   nextBlocks.push({ type: 'content', content: data });
                 }
@@ -409,13 +413,17 @@ function App() {
                   );
                 }
               } else if (ev.event === 'error') {
-                msg.content += `\n\n**Error:** ${data}`;
-                const nextBlocks = msg.blocks || [];
+                const errorText = `\n\n**Error:** ${data}`;
+                msg.content = `${msg.content || ''}${errorText}`;
+                const nextBlocks = msg.blocks ? [...msg.blocks] : [];
                 const lastBlock = nextBlocks[nextBlocks.length - 1];
                 if (lastBlock?.type === 'content') {
-                  lastBlock.content += `\n\n**Error:** ${data}`;
+                  nextBlocks[nextBlocks.length - 1] = {
+                    ...lastBlock,
+                    content: `${lastBlock.content}${errorText}`,
+                  };
                 } else {
-                  nextBlocks.push({ type: 'content', content: `\n\n**Error:** ${data}` });
+                  nextBlocks.push({ type: 'content', content: errorText });
                 }
                 msg.blocks = nextBlocks;
                 setIsLoading(false);
@@ -437,13 +445,17 @@ function App() {
                 toolCalls: [...(currentMsg.toolCalls || [])],
                 blocks: [...(currentMsg.blocks || [])],
               };
-              msg.content += `\n\n**Parse Error:** ${ev.data}`;
-              const nextBlocks = msg.blocks || [];
+              const parseErrorText = `\n\n**Parse Error:** ${ev.data}`;
+              msg.content = `${msg.content || ''}${parseErrorText}`;
+              const nextBlocks = msg.blocks ? [...msg.blocks] : [];
               const lastBlock = nextBlocks[nextBlocks.length - 1];
               if (lastBlock?.type === 'content') {
-                lastBlock.content += `\n\n**Parse Error:** ${ev.data}`;
+                nextBlocks[nextBlocks.length - 1] = {
+                  ...lastBlock,
+                  content: `${lastBlock.content}${parseErrorText}`,
+                };
               } else {
-                nextBlocks.push({ type: 'content', content: `\n\n**Parse Error:** ${ev.data}` });
+                nextBlocks.push({ type: 'content', content: parseErrorText });
               }
               msg.blocks = nextBlocks;
               newMessages[msgIndex] = msg;
@@ -452,6 +464,22 @@ function App() {
           }
         },
         onerror(err) {
+          const message =
+            err instanceof Error
+              ? err.message
+              : typeof err === 'string'
+                ? err
+                : String(err);
+          const aborted =
+            err instanceof DOMException && err.name === 'AbortError'
+              ? true
+              : message.includes('BodyStreamBuffer was aborted') ||
+                message.includes('aborted') ||
+                message.includes('AbortError');
+          if (aborted) {
+            setIsLoading(false);
+            return;
+          }
           console.error('EventSource failed:', err);
           updateSessionMessages(sessionId, (prevMessages) => {
             const newMessages = [...prevMessages];
@@ -463,15 +491,19 @@ function App() {
               toolCalls: [...(currentMsg.toolCalls || [])],
               blocks: [...(currentMsg.blocks || [])],
             };
-            msg.content += `\n\n**Connection Error:** ${err instanceof Error ? err.message : String(err)}`;
-            const nextBlocks = msg.blocks || [];
+            const errorText = `\n\n**Connection Error:** ${message}`;
+            msg.content = `${msg.content || ''}${errorText}`;
+            const nextBlocks = msg.blocks ? [...msg.blocks] : [];
             const lastBlock = nextBlocks[nextBlocks.length - 1];
             if (lastBlock?.type === 'content') {
-              lastBlock.content += `\n\n**Connection Error:** ${err instanceof Error ? err.message : String(err)}`;
+              nextBlocks[nextBlocks.length - 1] = {
+                ...lastBlock,
+                content: `${lastBlock.content}${errorText}`,
+              };
             } else {
               nextBlocks.push({
                 type: 'content',
-                content: `\n\n**Connection Error:** ${err instanceof Error ? err.message : String(err)}`,
+                content: errorText,
               });
             }
             msg.blocks = nextBlocks;

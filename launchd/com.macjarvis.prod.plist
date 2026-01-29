@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- File: launchd/com.macjarvis.prod.plist -->
+<!-- Purpose: LaunchAgent for MacJarvis production mode -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.macjarvis.prod</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>/Users/xinfuzhang/Desktop/Code/mac_agent/start_prod.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/xinfuzhang/Desktop/Code/mac_agent</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>BACKEND_PORT</key>
+      <string>18888</string>
+      <key>FRONTEND_PORT</key>
+      <string>18889</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/xinfuzhang/Desktop/Code/mac_agent/logs/launchd.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/xinfuzhang/Desktop/Code/mac_agent/logs/launchd.err</string>
+  </dict>
+</plist>

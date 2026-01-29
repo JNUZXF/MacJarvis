@@ -186,10 +186,42 @@ mac_agent/
 
 - **Python**: 3.12 或更高版本
 - **Node.js**: 18 或更高版本
-- **Docker & Docker Compose**: 可选，用于容器化部署
-- **macOS**: 系统工具仅支持 macOS（其他系统可修改工具实现）
+- **macOS**: 系统工具专为 macOS 设计，需要直接运行在 macOS 上
 
-### 方式一：本地开发
+> ⚠️ **重要提示**: 本项目需要直接访问 macOS 系统功能（Spotlight、应用启动、截屏等），因此**不支持Docker部署**。请使用本地部署方式。
+
+### 一键启动（推荐）
+
+最简单的启动方式，使用提供的启动脚本：
+
+```bash
+# 1. 配置API密钥
+cp .env.example .env
+# 编辑 .env 文件，填入你的 OpenRouter API Key
+
+# 2. 一键启动
+./start.sh
+```
+
+启动脚本会自动：
+- ✅ 检查并安装所有依赖
+- ✅ 启动后端服务（端口18888）
+- ✅ 启动前端服务（端口18889）
+- ✅ 自动打开浏览器
+
+**停止服务：**
+```bash
+./stop.sh
+```
+
+**重启服务：**
+```bash
+./restart.sh
+```
+
+详细使用说明请查看 [快速启动指南](./QUICK_START.md)
+
+### 手动启动（开发模式）
 
 #### 1. 克隆项目
 
@@ -236,10 +268,10 @@ source .venv/bin/activate
 cd server
 python app.py
 # 或使用 uvicorn（推荐，支持热重载）
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app:app --host 0.0.0.0 --port 18888 --reload
 ```
 
-后端服务将在 `http://localhost:8000` 启动。
+后端服务将在 `http://localhost:18888` 启动。
 
 **启动前端服务**（在 `frontend` 目录下）：
 
@@ -248,62 +280,34 @@ cd frontend
 npm run dev
 ```
 
-前端服务将在 `http://localhost:5173` 启动。
+前端服务将在 `http://localhost:18889` 启动。
 
-访问 `http://localhost:5173` 即可使用应用。
+访问 `http://localhost:18889` 即可使用应用。
 
-如需在本地直连后端（不经过 nginx 代理），请在启动前设置：
+如需在本地直连后端，请在启动前设置：
 ```bash
-export VITE_API_URL=http://localhost:8000
+export VITE_API_URL=http://localhost:18888
 ```
 
-### 方式二：Docker 部署（推荐）
+### 生产模式启动（推荐上线）
 
-#### 使用 Docker Compose
-
-```bash
-# 1. 配置环境变量
-cp .env.example .env
-# 编辑 .env 文件，填入你的 API Key
-
-# 2. 启动所有服务
-docker compose -f docker-compose.yml up -d --build
-
-# 3. 查看日志
-docker compose -f docker-compose.yml logs -f
-
-# 4. 停止服务
-docker compose -f docker-compose.yml down
-```
-
-服务启动后：
-- 前端访问：`http://localhost:8080`
-- 后端 API：`http://localhost:8001`
-- API 文档：`http://localhost:8001/docs`
-
-#### 手动构建和运行
+生产模式不会使用 Vite dev server，并通过 Nginx 代理 SSE：
 
 ```bash
-# 构建后端镜像
-docker build -t macjarvis-backend -f Dockerfile.backend .
+# 生产模式启动
+./start_prod.sh
 
-# 构建前端镜像
-docker build -t macjarvis-frontend -f Dockerfile.frontend .
-
-# 运行后端
-docker run -d --name backend \
-  -p 8001:8000 \
-  --env-file .env \
-  macjarvis-backend
-
-# 运行前端
-docker run -d --name frontend \
-  -p 8080:80 \
-  --link backend:backend \
-  macjarvis-frontend
+# 停止生产模式
+./stop_prod.sh
 ```
 
----
+生产模式默认端口：
+- 前端界面：`http://localhost:18889`
+- 后端 API：`http://localhost:18888`
+
+Nginx 配置文件位置：`nginx/mac_agent.conf`
+
+LaunchAgent（macOS自启）配置文件：`launchd/com.macjarvis.prod.plist`
 
 ## ⚙️ 配置说明
 
@@ -444,7 +448,7 @@ HTTPS_PROXY=http://127.0.0.1:1080
 ```
 ┌─────────────┐
 │  前端 (React) │
-│  Port: 5173 │
+│  Port: 18889 │
 └──────┬──────┘
        │ HTTP/SSE
        ▼
@@ -457,7 +461,7 @@ HTTPS_PROXY=http://127.0.0.1:1080
 ┌─────────────┐      ┌──────────────┐
 │ FastAPI     │─────▶│ OpenAI API  │
 │ Backend     │      │ (OpenRouter) │
-│ Port: 8000  │      └──────────────┘
+│ Port: 18888 │      └──────────────┘
 └──────┬──────┘
        │
        ▼
@@ -786,10 +790,7 @@ docker compose -f docker-compose.yml up -d --build
 
 1. **确认后端服务运行**：
    ```bash
-   # 本地开发
-   curl http://localhost:8000/health
-   # Docker 部署
-   curl http://localhost:8001/health
+   curl http://localhost:18888/health
    ```
 
 2. **检查 CORS 配置**：后端已配置允许所有来源，如仍有问题检查网络请求
@@ -798,40 +799,36 @@ docker compose -f docker-compose.yml up -d --build
 
 4. **检查 API URL 配置**：
    ```bash
-   # 前端使用相对路径，由 nginx 代理
-   # 确保 nginx.conf 配置正确
+   # 默认使用 VITE_API_URL 指向后端
+   # 启动脚本会自动设置: http://localhost:18888
+   echo $VITE_API_URL
    ```
 
-### Docker 容器无法启动
+### 端口被占用
 
-1. **检查 Docker 服务状态**：
-   ```bash
-   docker ps
-   docker compose -f docker-compose.yml ps
-   ```
-
-2. **查看容器日志**：
-   ```bash
-   docker compose -f docker-compose.yml logs
-   ```
-
-3. **检查环境变量文件**：
-   ```bash
-   # 确保 .env 文件存在且格式正确
-   cat .env
-   ```
-
-4. **检查端口占用**：
+1. **检查端口占用**：
    ```bash
    # macOS/Linux
-   lsof -i :8000
-   lsof -i :8001
-   lsof -i :8080
-   
-   # 或使用 netstat
-   netstat -an | grep 8000
-   netstat -an | grep 8001
+   lsof -i :18888
+   lsof -i :18889
    ```
+
+2. **处理占用进程**：
+   ```bash
+   # 找到 PID 后手动结束进程
+   kill <PID>
+   ```
+
+### 流式输出字符重复
+
+1. **确认是否在开发模式**：Vite 开发模式下如果状态更新有副作用，会出现重复字符
+2. **解决方案**：已通过纯函数更新状态修复，如仍存在请重启前端服务
+
+### Connection Error: BodyStreamBuffer was aborted
+
+1. **原因**：浏览器/网络在工具调用后中止了 SSE 连接（开发模式更常见）
+2. **处理**：前端已过滤该类中止错误，不再显示为连接失败
+3. **建议**：若仍频繁出现，重启前端或检查网络代理设置
 
 ### API 请求失败
 
@@ -844,7 +841,7 @@ docker compose -f docker-compose.yml up -d --build
 2. **测试 API 连接**：
    ```bash
    # 本地开发
-   curl -X POST http://localhost:8000/api/chat \
+   curl -X POST http://localhost:18888/api/chat \
      -H "Content-Type: application/json" \
      -d '{"message": "test"}'
 
