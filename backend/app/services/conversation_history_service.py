@@ -86,7 +86,7 @@ class ConversationHistoryService:
             "content": message.content,
             "tool_calls": message.tool_calls,
             "tool_call_results": message.tool_call_results,
-            "metadata": message.metadata,
+            "metadata": message.message_metadata,
             "created_at": message.created_at.isoformat() if message.created_at else None
         }
 
@@ -201,7 +201,7 @@ class ConversationHistoryService:
                 "content": msg.content,
                 "tool_calls": msg.tool_calls,
                 "tool_call_results": msg.tool_call_results,
-                "metadata": msg.metadata,
+                "metadata": msg.message_metadata,
                 "created_at": msg.created_at.isoformat() if msg.created_at else None
             })
 

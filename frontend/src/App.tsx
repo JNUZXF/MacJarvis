@@ -114,7 +114,7 @@ function App() {
   const initSessionState = async () => {
     const storedUserId = localStorage.getItem('mac_agent_user_id');
     const storedActive = localStorage.getItem('mac_agent_active_session');
-    const response = await fetch(`${apiUrl}/api/session/init`, {
+    const response = await fetch(`${apiUrl}/api/v1/session/init`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -147,7 +147,7 @@ function App() {
     if (!currentUserId) return;
     try {
       const response = await fetch(
-        `${apiUrl}/api/user/paths?user_id=${encodeURIComponent(currentUserId)}`
+        `${apiUrl}/api/v1/user/paths?user_id=${encodeURIComponent(currentUserId)}`
       );
       if (!response.ok) {
         throw new Error(`Load user paths failed: ${response.status}`);
@@ -165,7 +165,7 @@ function App() {
     const currentUserId = userId || localStorage.getItem('mac_agent_user_id');
     if (!currentUserId) return;
     try {
-      const response = await fetch(`${apiUrl}/api/user/paths`, {
+      const response = await fetch(`${apiUrl}/api/v1/user/paths`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -191,7 +191,7 @@ function App() {
     if (!currentUserId) return;
     try {
       const response = await fetch(
-        `${apiUrl}/api/user/proxy?user_id=${encodeURIComponent(currentUserId)}`
+        `${apiUrl}/api/v1/user/proxy?user_id=${encodeURIComponent(currentUserId)}`
       );
       if (!response.ok) {
         throw new Error(`Load proxy config failed: ${response.status}`);
@@ -210,7 +210,7 @@ function App() {
     const currentUserId = userId || localStorage.getItem('mac_agent_user_id');
     if (!currentUserId) return;
     try {
-      const response = await fetch(`${apiUrl}/api/user/proxy`, {
+      const response = await fetch(`${apiUrl}/api/v1/user/proxy`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -269,7 +269,7 @@ function App() {
         return '';
       }
     }
-    const response = await fetch(`${apiUrl}/api/session/new`, {
+    const response = await fetch(`${apiUrl}/api/v1/session/new`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -296,7 +296,7 @@ function App() {
       return;
     }
     const response = await fetch(
-      `${apiUrl}/api/session/${sessionId}?user_id=${encodeURIComponent(currentUserId)}`
+      `${apiUrl}/api/v1/session/${sessionId}?user_id=${encodeURIComponent(currentUserId)}`
     );
     if (!response.ok) {
       console.error('Failed to load session:', response.status);
@@ -400,7 +400,7 @@ function App() {
 
     try {
       // 使用相对路径，由 nginx 代理到后端
-      await fetchEventSource(`${apiUrl}/api/chat`, {
+      await fetchEventSource(`${apiUrl}/api/v1/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -591,7 +591,7 @@ function App() {
   const uploadFile = async (file: File): Promise<ChatAttachment | null> => {
     const formData = new FormData();
     formData.append('file', file);
-    const response = await fetch(`${apiUrl}/api/files`, {
+    const response = await fetch(`${apiUrl}/api/v1/files`, {
       method: 'POST',
       body: formData,
     });

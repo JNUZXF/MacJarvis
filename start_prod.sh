@@ -71,10 +71,10 @@ if [ ! -d ".venv" ]; then
 fi
 source .venv/bin/activate
 
-# 启动后端（Gunicorn）
+# 启动后端（Gunicorn）- 使用新的应用入口 app.main:app（包含聊天记录保存功能）
 echo -e "${BLUE}启动后端服务（端口 $BACKEND_PORT）...${NC}"
 nohup gunicorn -k uvicorn.workers.UvicornWorker \
-  server.app:app \
+  app.main:app \
   -w 2 \
   -b 0.0.0.0:$BACKEND_PORT \
   --access-logfile ../logs/backend_access.log \

@@ -328,7 +328,7 @@ class SessionService:
             "content": message.content,
             "tool_calls": message.tool_calls or [],
             "tool_call_results": message.tool_call_results,
-            "metadata": message.metadata,
+            "metadata": message.message_metadata,
             "created_at": int(message.created_at.timestamp() * 1000),
         }
     

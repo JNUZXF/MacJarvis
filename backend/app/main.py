@@ -53,9 +53,16 @@ async def lifespan(app: FastAPI):
         await init_db(settings)
         logger.info("database_ready")
         
-        # Initialize Redis
-        await init_redis(settings)
-        logger.info("redis_ready")
+        # Initialize Redis (optional - will use in-memory cache if Redis is unavailable)
+        try:
+            await init_redis(settings)
+            logger.info("redis_ready")
+        except Exception as redis_error:
+            logger.warning(
+                "redis_initialization_failed_using_fallback",
+                error=str(redis_error)
+            )
+            # Redis is optional - application can run without it
         
         # Setup tracing (optional)
         setup_tracing(

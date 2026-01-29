@@ -148,7 +148,7 @@ class MessageRepository:
             content=content,
             tool_calls=tool_calls or [],
             tool_call_results=tool_call_results,
-            metadata=metadata
+            message_metadata=metadata
         )
         self.db.add(message)
         await self.db.flush()
@@ -297,7 +297,7 @@ class EpisodicMemoryRepository:
             episode_type=episode_type,
             summary=summary,
             content=content,
-            metadata=metadata or {}
+            memory_metadata=metadata or {}
         )
         self.db.add(memory)
         await self.db.flush()
@@ -341,7 +341,7 @@ class SemanticMemoryRepository:
             user_id=user_id,
             content=content,
             embedding=embedding,
-            metadata=metadata or {}
+            memory_metadata=metadata or {}
         )
         self.db.add(memory)
         await self.db.flush()

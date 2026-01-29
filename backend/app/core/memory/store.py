@@ -140,7 +140,7 @@ class EpisodicMemory:
                     "type": row["type"],
                     "summary": row["summary"],
                     "content": json.loads(row["content"] or "{}"),
-                    "metadata": json.loads(row["metadata"] or "{}"),
+                    "metadata": json.loads(row["memory_metadata"] or "{}"),
                     "created_at": row["created_at"],
                     "score": score,
                 }
@@ -257,7 +257,7 @@ class SemanticMemory:
                     "id": row["id"],
                     "category": row["category"],
                     "content": row["content"],
-                    "metadata": json.loads(row["metadata"] or "{}"),
+                    "metadata": json.loads(row["memory_metadata"] or "{}"),
                     "created_at": row["created_at"],
                     "score": score,
                 }

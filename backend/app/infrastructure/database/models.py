@@ -70,7 +70,7 @@ class Message(Base):
     content = Column(Text)
     tool_calls = Column(JSON)  # Store tool calls as JSON
     tool_call_results = Column(JSON)  # Store tool call results as JSON
-    metadata = Column(JSON)  # Store additional metadata (timestamps, etc.)
+    message_metadata = Column(JSON)  # Store additional metadata (timestamps, etc.) - renamed from 'metadata' to avoid SQLAlchemy conflict
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
@@ -118,7 +118,7 @@ class EpisodicMemory(Base):
     episode_type = Column(String(50), nullable=False)  # conversation, summary, task, etc.
     summary = Column(Text, nullable=False)
     content = Column(JSON, nullable=False)  # Full episode content
-    metadata = Column(JSON)  # Additional metadata
+    memory_metadata = Column(JSON)  # Additional metadata - renamed from 'metadata' to avoid SQLAlchemy conflict
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships
@@ -144,7 +144,7 @@ class SemanticMemory(Base):
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     content = Column(Text, nullable=False)
     embedding = Column(JSON, nullable=False)  # Vector embedding as JSON array
-    metadata = Column(JSON)  # Source, tags, etc.
+    memory_metadata = Column(JSON)  # Source, tags, etc. - renamed from 'metadata' to avoid SQLAlchemy conflict
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships
@@ -224,7 +224,7 @@ class FactMemory(Base):
     fact_value = Column(Text, nullable=False)  # The actual fact
     confidence = Column(Integer, default=5, nullable=False)  # 1-10 scale
     source = Column(String(100))  # direct_statement, inferred, etc.
-    metadata = Column(JSON)  # Related entities, timestamps, etc.
+    fact_metadata = Column(JSON)  # Related entities, timestamps, etc. - renamed from 'metadata' to avoid SQLAlchemy conflict
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     verified_at = Column(DateTime)  # When this fact was last verified

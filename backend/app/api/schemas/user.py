@@ -1,7 +1,7 @@
 # File: backend/app/api/schemas/user.py
 # Purpose: Pydantic schemas for user-related API endpoints
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 
 
 class UserPathsRequest(BaseModel):
