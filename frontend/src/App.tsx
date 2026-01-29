@@ -668,14 +668,6 @@ function App() {
 
       {/* 中间：主聊天区域 */}
       <main className="flex-1 flex flex-col z-10 relative">
-        {/* 顶部工具栏 */}
-        <header className={styles.header}>
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-            <span className="text-sm font-medium opacity-70">系统核心已就绪</span>
-          </div>
-        </header>
-
         {/* 消息展示区 */}
         <section className={`${styles.messagesSection} space-y-8`}>
           {messages.length === 0 ? (
