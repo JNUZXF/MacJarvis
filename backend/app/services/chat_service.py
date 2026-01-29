@@ -9,6 +9,7 @@ from app.services.llm_service import LLMService
 from app.services.session_service import SessionService
 from app.services.file_service import FileService
 from app.services.conversation_history_service import ConversationHistoryService
+from app.services.memory_integration_service import MemoryIntegrationService
 from app.config import Settings
 from app.core.agent.orchestrator import AgentOrchestrator
 from app.core.tools.registry import ToolRegistry
@@ -34,7 +35,8 @@ class ChatService:
         session_service: SessionService,
         file_service: FileService,
         conversation_history_service: ConversationHistoryService,
-        settings: Settings
+        settings: Settings,
+        memory_integration_service: Optional[MemoryIntegrationService] = None
     ):
         """
         Initialize chat service.
@@ -45,12 +47,14 @@ class ChatService:
             file_service: File handling service
             conversation_history_service: Conversation history service
             settings: Application settings
+            memory_integration_service: Optional memory integration service
         """
         self.llm = llm_service
         self.sessions = session_service
         self.files = file_service
         self.conversation_history = conversation_history_service
         self.settings = settings
+        self.memory = memory_integration_service
     
     async def process_chat_message(
         self,
@@ -117,12 +121,18 @@ class ChatService:
                     attachments
                 )
             
+            # Get memory context if memory service is available
+            memory_context = ""
+            if self.memory:
+                memory_context = await self.memory.build_memory_context_prompt(user_id)
+
             # Build messages for LLM
             messages = self._build_llm_messages(
                 message=message,
                 attachment_context=attachment_context,
                 image_parts=image_parts,
-                history=session.get("messages", [])[-10:]  # Last 10 messages
+                history=session.get("messages", [])[-10:],  # Last 10 messages
+                memory_context=memory_context
             )
             
             # Determine model
@@ -192,6 +202,24 @@ class ChatService:
                 content=assistant_content,
                 metadata={"timestamp": assistant_msg_timestamp.isoformat()}
             )
+
+            # Extract and store memories in background (if memory service is available)
+            if self.memory:
+                try:
+                    await self.memory.extract_and_store_memories(
+                        user_id=user_id,
+                        session_id=session_id,
+                        user_message=message,
+                        assistant_response=assistant_content,
+                        background=True  # Run in background to not block response
+                    )
+                except Exception as memory_error:
+                    logger.error(
+                        "memory_extraction_failed",
+                        user_id=user_id,
+                        session_id=session_id,
+                        error=str(memory_error)
+                    )
 
             # Export conversation history to Markdown files
             try:
@@ -289,24 +317,26 @@ class ChatService:
         message: str,
         attachment_context: str,
         image_parts: List[dict],
-        history: List[dict]
+        history: List[dict],
+        memory_context: str = ""
     ) -> List[dict]:
         """
         Build messages array for LLM API.
-        
+
         Args:
             message: Current user message
             attachment_context: Text from attachments
             image_parts: Image attachments
             history: Recent message history
-        
+            memory_context: User memory context
+
         Returns:
             List of message dictionaries
         """
         messages = [
             {
                 "role": "system",
-                "content": self._build_system_prompt(attachment_context)
+                "content": self._build_system_prompt(attachment_context, memory_context)
             }
         ]
         
@@ -335,13 +365,18 @@ class ChatService:
         
         return messages
     
-    def _build_system_prompt(self, attachment_context: str = "") -> str:
+    def _build_system_prompt(
+        self,
+        attachment_context: str = "",
+        memory_context: str = ""
+    ) -> str:
         """
-        Build system prompt with optional attachment context.
-        
+        Build system prompt with optional attachment and memory context.
+
         Args:
             attachment_context: Context from file attachments
-        
+            memory_context: User memory context
+
         Returns:
             System prompt string
         """
@@ -349,11 +384,16 @@ class ChatService:
 你可以使用提供的工具来获取信息或执行操作。
 在执行具有潜在风险的操作（如删除文件、修改系统设置）前，请务必仔细确认路径和参数。
 请用中文回复用户。"""
-        
+
+        prompt_parts = [base_prompt]
+
+        if memory_context:
+            prompt_parts.append(f"\n\n{memory_context}")
+
         if attachment_context:
-            return f"{base_prompt}\n\n附件内容:\n{attachment_context}"
-        
-        return base_prompt
+            prompt_parts.append(f"\n\n附件内容:\n{attachment_context}")
+
+        return "".join(prompt_parts)
     
     async def generate_session_summary(
         self,
@@ -490,9 +530,14 @@ class ChatService:
                         "content": hist_msg.get("content", "")
                     })
 
+            # Get memory context if memory service is available
+            memory_context = ""
+            if self.memory:
+                memory_context = await self.memory.build_memory_context_prompt(user_id)
+
             # Create agent orchestrator
             llm_client = self.llm.client
-            system_prompt = self._build_system_prompt(attachment_context)
+            system_prompt = self._build_system_prompt(attachment_context, memory_context)
             orchestrator = AgentOrchestrator(
                 client=llm_client,
                 registry=tool_registry,
@@ -567,6 +612,24 @@ class ChatService:
                 tool_call_results=tool_call_results if tool_call_results else None,
                 metadata=metadata
             )
+
+            # Extract and store memories in background (if memory service is available)
+            if self.memory:
+                try:
+                    await self.memory.extract_and_store_memories(
+                        user_id=user_id,
+                        session_id=session_id,
+                        user_message=message,
+                        assistant_response=assistant_content,
+                        background=True  # Run in background to not block response
+                    )
+                except Exception as memory_error:
+                    logger.error(
+                        "memory_extraction_failed",
+                        user_id=user_id,
+                        session_id=session_id,
+                        error=str(memory_error)
+                    )
 
             # Export conversation history to Markdown files
             try:
