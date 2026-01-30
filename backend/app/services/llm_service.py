@@ -39,7 +39,6 @@ class LLMService:
         self.cache = cache
         self.settings = settings
     
-    @with_retry(max_attempts=3, initial_delay=2.0, max_delay=10.0)
     async def chat_completion(
         self,
         messages: list[dict],
@@ -67,11 +66,96 @@ class LLMService:
         Returns:
             Response dictionary or async iterator for streaming
         """
-        # Streaming responses cannot be cached
+        # Streaming responses cannot be cached and use different logic
         if stream:
-            use_cache = False
+            # Return async generator directly for streaming
+            return self._chat_completion_stream(
+                messages=messages,
+                model=model,
+                tools=tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs
+            )
+        else:
+            # Non-streaming with retry and caching
+            return await self._chat_completion_non_stream(
+                messages=messages,
+                model=model,
+                tools=tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                use_cache=use_cache,
+                **kwargs
+            )
+    
+    def _chat_completion_stream(
+        self,
+        messages: list[dict],
+        model: str,
+        tools: Optional[list[dict]] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> AsyncIterator[dict]:
+        """
+        Streaming chat completion (no retry, no cache).
         
-        # Try to get from cache first (non-streaming only)
+        Args:
+            messages: List of message dictionaries
+            model: Model name
+            tools: Optional list of tool definitions
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+            **kwargs: Additional parameters
+        
+        Returns:
+            Async iterator of response chunks
+        """
+        logger.info(
+            "llm_stream_started",
+            model=model,
+            message_count=len(messages),
+            has_tools=tools is not None
+        )
+        
+        # Return the async generator directly from client's streaming method
+        return self.client.chat_completions_stream(
+            messages=messages,
+            model=model,
+            tools=tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs
+        )
+    
+    @with_retry(max_attempts=3, initial_delay=2.0, max_delay=10.0)
+    async def _chat_completion_non_stream(
+        self,
+        messages: list[dict],
+        model: str,
+        tools: Optional[list[dict]] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        use_cache: bool = True,
+        **kwargs
+    ) -> dict:
+        """
+        Non-streaming chat completion with retry and caching.
+        
+        Args:
+            messages: List of message dictionaries
+            model: Model name
+            tools: Optional list of tool definitions
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+            use_cache: Whether to use caching
+            **kwargs: Additional parameters
+        
+        Returns:
+            Response dictionary
+        """
+        # Try to get from cache first
         if use_cache and self.settings.LLM_CACHE_ENABLED:
             cached_response = await self.cache.get_llm_response(
                 messages=messages,
@@ -96,7 +180,7 @@ class LLMService:
                     messages=messages,
                     model=model,
                     tools=tools,
-                    stream=stream,
+                    stream=False,
                     temperature=temperature,
                     max_tokens=max_tokens,
                     **kwargs
@@ -104,8 +188,8 @@ class LLMService:
                 timeout=self.settings.LLM_REQUEST_TIMEOUT
             )
             
-            # Cache non-streaming responses
-            if use_cache and not stream and self.settings.LLM_CACHE_ENABLED:
+            # Cache the response
+            if use_cache and self.settings.LLM_CACHE_ENABLED:
                 await self.cache.set_llm_response(
                     messages=messages,
                     model=model,
@@ -119,7 +203,7 @@ class LLMService:
             logger.info(
                 "llm_call_success",
                 model=model,
-                stream=stream,
+                stream=False,
                 has_tools=tools is not None,
                 cached=False
             )

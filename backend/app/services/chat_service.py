@@ -159,11 +159,10 @@ class ChatService:
             assistant_content = ""
             
             if stream:
-                response = await self.llm.chat_completion(
+                # Get async generator directly from streaming method
+                response = self.llm._chat_completion_stream(
                     messages=messages,
-                    model=model,
-                    stream=True,
-                    use_cache=False  # Don't cache streaming responses
+                    model=model
                 )
                 
                 async for chunk in response:

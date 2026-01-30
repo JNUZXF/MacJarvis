@@ -40,14 +40,74 @@ class OpenAIClient(LLMClient):
         Returns:
             Response dictionary or async iterator for streaming
         """
-        # Ensure endpoint matches base_url format
+        if stream:
+            # For streaming, use the dedicated streaming method
+            return self.chat_completions_stream(
+                messages=messages,
+                model=model,
+                tools=tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs
+            )
+        else:
+            # For non-streaming, proceed with normal async call
+            endpoint = "/chat/completions" if self.base_url.endswith("/v1") else "/v1/chat/completions"
+            
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": False,
+                **kwargs
+            }
+            
+            if max_tokens:
+                payload["max_tokens"] = max_tokens
+            
+            if tools:
+                payload["tools"] = tools
+            
+            logger.debug(
+                "llm_request_started",
+                model=model,
+                stream=False,
+                message_count=len(messages),
+                has_tools=tools is not None
+            )
+            
+            return await self._complete(endpoint, payload)
+    
+    def chat_completions_stream(
+        self,
+        messages: list[dict],
+        model: str,
+        tools: Optional[list[dict]] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> AsyncIterator[dict]:
+        """
+        Create streaming chat completion.
+        
+        Args:
+            messages: List of message dictionaries
+            model: Model name
+            tools: Optional list of tool definitions
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+            **kwargs: Additional parameters
+        
+        Returns:
+            Async iterator for streaming
+        """
         endpoint = "/chat/completions" if self.base_url.endswith("/v1") else "/v1/chat/completions"
         
         payload = {
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "stream": stream,
+            "stream": True,
             **kwargs
         }
         
@@ -60,15 +120,13 @@ class OpenAIClient(LLMClient):
         logger.debug(
             "llm_request_started",
             model=model,
-            stream=stream,
+            stream=True,
             message_count=len(messages),
             has_tools=tools is not None
         )
         
-        if stream:
-            return self._stream_completion(endpoint, payload)
-        else:
-            return await self._complete(endpoint, payload)
+        # Return the async generator directly
+        return self._stream_completion(endpoint, payload)
     
     async def _complete(self, endpoint: str, payload: dict) -> dict:
         """Non-streaming completion"""
