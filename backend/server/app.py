@@ -51,9 +51,18 @@ from agent.prompts import BASE_SYSTEM_PROMPT, build_system_prompt_with_paths
 
 app = FastAPI()
 
+# CORS配置：明确指定允许的源，避免使用["*"]与allow_credentials=True冲突
+# 当allow_credentials=True时，不能使用["*"]，必须明确指定允许的源
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:18889,http://localhost:3000,http://127.0.0.1:18889,http://127.0.0.1:3000")
+if isinstance(cors_origins, str):
+    # 支持逗号分隔的字符串格式
+    cors_origins_list = [origin.strip() for origin in cors_origins.split(",") if origin.strip()]
+else:
+    cors_origins_list = cors_origins if isinstance(cors_origins, list) else ["http://localhost:18889"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1124,6 +1133,64 @@ async def chat_endpoint(request: ChatRequest):
         event_generator(),
         media_type="text/event-stream"
     ))
+
+
+# ============================================================================
+# API v1 路由别名（兼容前端使用 /api/v1/ 前缀）
+# ============================================================================
+
+@app.post("/api/v1/session/init")
+async def init_session_v1(request: SessionInitRequest):
+    """API v1版本的session初始化接口"""
+    return await init_session(request)
+
+
+@app.post("/api/v1/session/new")
+async def create_session_endpoint_v1(request: SessionCreateRequest):
+    """API v1版本的创建session接口"""
+    return await create_session_endpoint(request)
+
+
+@app.get("/api/v1/session/{session_id}")
+async def get_session_v1(session_id: str, user_id: str):
+    """API v1版本的获取session接口"""
+    return await get_session(session_id, user_id)
+
+
+@app.get("/api/v1/user/paths")
+async def get_user_paths_endpoint_v1(user_id: str):
+    """API v1版本的获取用户路径接口"""
+    return await get_user_paths_endpoint(user_id)
+
+
+@app.post("/api/v1/user/paths")
+async def set_user_paths_endpoint_v1(request: UserPathsRequest):
+    """API v1版本的设置用户路径接口"""
+    return await set_user_paths_endpoint(request)
+
+
+@app.get("/api/v1/user/proxy")
+async def get_user_proxy_config_v1(user_id: str):
+    """API v1版本的获取用户代理配置接口"""
+    return await get_user_proxy_config(user_id)
+
+
+@app.post("/api/v1/user/proxy")
+async def set_user_proxy_config_v1(request: UserProxyRequest):
+    """API v1版本的设置用户代理配置接口"""
+    return await set_user_proxy_config(request)
+
+
+@app.post("/api/v1/files")
+async def upload_file_v1(file: UploadFile = File(...), user_id: str = None):
+    """API v1版本的文件上传接口"""
+    return await upload_file(file, user_id)
+
+
+@app.post("/api/v1/chat")
+async def chat_endpoint_v1(request: ChatRequest):
+    """API v1版本的聊天接口"""
+    return await chat_endpoint(request)
 
 
 if __name__ == "__main__":

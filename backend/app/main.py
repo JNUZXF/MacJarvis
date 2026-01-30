@@ -108,20 +108,43 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DEBUG else None,
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Add custom middleware (order matters!)
+# Add custom middleware first (order matters!)
+# FastAPI中间件是LIFO（后进先出）顺序，所以先添加的中间件后执行
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(MetricsMiddleware)
 if settings.DEBUG:
     app.add_middleware(RequestLoggingMiddleware)
+
+# Add CORS middleware LAST (will execute FIRST due to LIFO)
+# 处理CORS配置：当allow_credentials=True时，不能使用["*"]
+# 如果配置中包含"*"，则设置allow_credentials=False以允许所有源
+cors_origins = settings.get_cors_origins()
+allow_creds = True
+if "*" in cors_origins:
+    # 如果使用通配符，则不允许credentials（浏览器安全限制）
+    allow_creds = False
+    logger.warning(
+        "cors_using_wildcard_without_credentials",
+        message="CORS_ORIGINS contains '*', setting allow_credentials=False for compatibility"
+    )
+
+# 记录CORS配置用于调试
+logger.info(
+    "cors_configuration",
+    cors_origins=cors_origins,
+    allow_credentials=allow_creds
+)
+
+# CORS中间件必须最后添加（FastAPI中间件是LIFO顺序）
+# 这样CORS头会在响应处理的最外层被添加
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=allow_creds,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],  # 明确暴露所有头
+)
 
 # Register exception handlers
 app.add_exception_handler(Exception, global_exception_handler)

@@ -44,7 +44,7 @@ def get_redis_pool(settings: Settings) -> ConnectionPool:
     return _redis_pool
 
 
-async def get_redis_client(settings: Settings = None) -> AsyncGenerator[Redis, None]:
+async def get_redis_client(settings: Settings = None) -> AsyncGenerator[Optional[Redis], None]:
     """
     Dependency for getting Redis client.
     Automatically handles connection lifecycle.
@@ -53,7 +53,7 @@ async def get_redis_client(settings: Settings = None) -> AsyncGenerator[Redis, N
         settings: Application settings (will be injected by FastAPI)
     
     Yields:
-        Redis client instance
+        Redis client instance, or None if connection fails
     """
     if settings is None:
         from app.config import get_settings
@@ -68,9 +68,12 @@ async def get_redis_client(settings: Settings = None) -> AsyncGenerator[Redis, N
         yield redis
     except Exception as e:
         logger.error("redis_connection_error", error=str(e))
-        raise
+        yield None
     finally:
-        await redis.close()
+        try:
+            await redis.close()
+        except Exception:
+            pass
 
 
 async def init_redis(settings: Settings):

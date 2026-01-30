@@ -1,9 +1,14 @@
 # File: backend/app/api/v1/users.py
 # Purpose: User management API endpoints
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 import structlog
 
-from app.api.schemas.user import UserPathsRequest, UserPathsResponse
+from app.api.schemas.user import (
+    UserPathsRequest,
+    UserPathsResponse,
+    UserProxyConfigRequest,
+    UserProxyConfigResponse
+)
 from app.services.user_service import UserService
 from app.dependencies import get_user_service
 
@@ -92,3 +97,28 @@ async def delete_user(
         "status": "deleted",
         "user_id": user_id
     }
+
+
+@router.get("/user/proxy", response_model=UserProxyConfigResponse)
+async def get_user_proxy_config(
+    user_id: str = Query(..., description="User ID"),
+    user_service: UserService = Depends(get_user_service)
+):
+    """Get user proxy configuration"""
+    return await user_service.get_user_proxy_config(user_id)
+
+
+@router.post("/user/proxy", response_model=UserProxyConfigResponse)
+async def set_user_proxy_config(
+    request: UserProxyConfigRequest,
+    user_service: UserService = Depends(get_user_service)
+):
+    """Set user proxy configuration"""
+    try:
+        return await user_service.set_user_proxy_config(
+            user_id=request.user_id,
+            http_proxy=request.http_proxy,
+            https_proxy=request.https_proxy
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

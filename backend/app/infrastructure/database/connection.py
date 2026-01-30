@@ -35,6 +35,12 @@ def get_engine(settings: Settings):
         # SQLite doesn't support connection pooling
         pool_class = NullPool
         pool_kwargs = {}
+        connect_args = {
+            # SQLite 默认超时较短，容易在并发写时直接抛 locked
+            "timeout": max(1, int(settings.SQLITE_BUSY_TIMEOUT_MS / 1000)),
+            # aiosqlite 场景下推荐关闭同线程限制
+            "check_same_thread": False,
+        }
     else:
         # PostgreSQL/MySQL use connection pooling
         pool_class = QueuePool
@@ -44,13 +50,30 @@ def get_engine(settings: Settings):
             "pool_pre_ping": True,  # Verify connections before using
             "pool_recycle": 3600,  # Recycle connections after 1 hour
         }
+        connect_args = {}
     
     _engine = create_async_engine(
         settings.DATABASE_URL,
         echo=settings.DB_ECHO,
         poolclass=pool_class,
+        connect_args=connect_args,
         **pool_kwargs
     )
+
+    # SQLite 连接级 PRAGMA：减少读写互斥、提升并发友好度，并设置 busy_timeout
+    if settings.DATABASE_URL.startswith("sqlite"):
+        from sqlalchemy import event
+
+        @event.listens_for(_engine.sync_engine, "connect")
+        def _set_sqlite_pragmas(dbapi_connection, _connection_record):  # type: ignore[no-redef]
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute(f"PRAGMA busy_timeout={int(settings.SQLITE_BUSY_TIMEOUT_MS)}")
+            finally:
+                cursor.close()
     
     logger.info(
         "database_engine_created",

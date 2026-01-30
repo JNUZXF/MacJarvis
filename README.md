@@ -340,6 +340,8 @@ export VITE_API_URL=http://localhost:18888
 - 前端界面：`http://localhost:18889`
 - 后端 API：`http://localhost:18888`
 
+生产模式启动脚本会自动检测 Redis 是否运行，未运行时会尝试启动。
+
 Nginx 配置文件位置：`nginx/mac_agent.conf`
 
 LaunchAgent（macOS自启）配置文件：`launchd/com.macjarvis.prod.plist`
@@ -469,8 +471,8 @@ HTTPS_PROXY=http://127.0.0.1:1080
 ```
 
 **API接口**：
-- `GET /api/user/proxy?user_id=...` 获取用户代理配置
-- `POST /api/user/proxy` 设置用户代理配置
+- `GET /api/v1/user/proxy?user_id=...` 获取用户代理配置
+- `POST /api/v1/user/proxy` 设置用户代理配置
 
 **详细文档**: 查看 `docs/proxy_configuration_20260128.md` 了解更多信息和性能测试结果
 

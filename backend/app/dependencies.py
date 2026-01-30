@@ -1,6 +1,6 @@
 # File: backend/app/dependencies.py
 # Purpose: Dependency injection for FastAPI with proper lifecycle management
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
@@ -62,7 +62,7 @@ async def get_db(
 
 async def get_redis(
     settings: Settings = Depends(get_app_settings)
-) -> AsyncGenerator[Redis, None]:
+) -> AsyncGenerator[Optional[Redis], None]:
     """
     Get Redis client with automatic lifecycle management.
     
@@ -70,14 +70,14 @@ async def get_redis(
         settings: Application settings
     
     Yields:
-        Redis client
+        Redis client or None if unavailable
     """
     async for redis in get_redis_client(settings):
         yield redis
 
 
 async def get_cache_manager(
-    redis: Redis = Depends(get_redis),
+    redis: Optional[Redis] = Depends(get_redis),
     settings: Settings = Depends(get_app_settings)
 ) -> CacheManager:
     """
@@ -90,6 +90,8 @@ async def get_cache_manager(
     Returns:
         Cache manager
     """
+    if redis is None:
+        logger.warning("cache_manager_using_in_memory_fallback")
     return CacheManager(redis, settings.LLM_CACHE_TTL)
 
 

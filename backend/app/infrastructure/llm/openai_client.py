@@ -40,10 +40,8 @@ class OpenAIClient(LLMClient):
         Returns:
             Response dictionary or async iterator for streaming
         """
-        # Ensure base_url has /v1 suffix for OpenAI compatibility
-        endpoint = "/v1/chat/completions"
-        if not self.base_url.endswith("/v1"):
-            endpoint = "/chat/completions"
+        # Ensure endpoint matches base_url format
+        endpoint = "/chat/completions" if self.base_url.endswith("/v1") else "/v1/chat/completions"
         
         payload = {
             "model": model,
@@ -122,9 +120,7 @@ class OpenAIClient(LLMClient):
         Returns:
             Embedding response dictionary
         """
-        endpoint = "/v1/embeddings"
-        if not self.base_url.endswith("/v1"):
-            endpoint = "/embeddings"
+        endpoint = "/embeddings" if self.base_url.endswith("/v1") else "/v1/embeddings"
         
         payload = {
             "model": model,

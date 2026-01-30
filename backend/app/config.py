@@ -3,6 +3,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from typing import Literal
+import json
 
 
 class Settings(BaseSettings):
@@ -11,7 +12,7 @@ class Settings(BaseSettings):
     Supports multiple environments (development, staging, production).
     """
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=[".env", "../.env"],
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore"
@@ -25,7 +26,11 @@ class Settings(BaseSettings):
     
     # API Configuration
     API_V1_PREFIX: str = "/api/v1"
-    CORS_ORIGINS: list[str] = ["*"]
+    # CORS配置：当allow_credentials=True时，不能使用["*"]，必须明确指定允许的源
+    # 支持通过环境变量配置，格式：
+    # JSON格式：CORS_ORIGINS=["http://localhost:18889","http://localhost:3000"]
+    # 或逗号分隔：CORS_ORIGINS=http://localhost:18889,http://localhost:3000
+    CORS_ORIGINS: str = "http://localhost:18889,http://localhost:3000,http://127.0.0.1:18889,http://127.0.0.1:3000"
     
     # LLM Configuration
     OPENAI_API_KEY: str = ""
@@ -52,6 +57,10 @@ class Settings(BaseSettings):
     DB_POOL_SIZE: int = 20
     DB_MAX_OVERFLOW: int = 10
     DB_ECHO: bool = False
+    # SQLite 并发写入时容易出现 "database is locked"：
+    # - busy_timeout 用于等待锁释放（单位毫秒）
+    # - 在多进程/多线程场景下建议配合 WAL
+    SQLITE_BUSY_TIMEOUT_MS: int = 30000
     
     # Redis Configuration
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -111,6 +120,20 @@ class Settings(BaseSettings):
         """Check if a model is in the allowed list"""
         return model in self.ALLOWED_MODELS
     
+    def get_cors_origins(self) -> list[str]:
+        """Parse CORS_ORIGINS env into list"""
+        raw = (self.CORS_ORIGINS or "").strip()
+        if not raw:
+            return []
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [str(item).strip() for item in parsed if str(item).strip()]
+            except json.JSONDecodeError:
+                pass
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
     def get_allowed_roots(self) -> list[str]:
         """Get list of allowed root paths from both sources"""
         roots = list(self.ALLOWED_ROOTS)

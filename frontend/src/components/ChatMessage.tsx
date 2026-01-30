@@ -20,11 +20,11 @@ interface ChatMessageProps {
 // 使用 memo 优化性能，避免不必要的重渲染
 export const ChatMessage: React.FC<ChatMessageProps> = memo(({ message }) => {
   const isUser = message.role === 'user';
-  const toolCalls = message.toolCalls ?? [];
+  const toolCalls = Array.isArray(message.toolCalls) ? message.toolCalls : [];
   
   // 使用 useMemo 缓存 blocks 计算结果
   const blocks: MessageBlock[] = useMemo(() => {
-    if (message.blocks) {
+    if (Array.isArray(message.blocks)) {
       return message.blocks;
     }
     return [

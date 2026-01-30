@@ -94,14 +94,21 @@ function App() {
   ]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 默认使用18888端口（避免端口冲突）
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:18888';
+  // 注意：macOS/浏览器可能将 localhost 解析为 IPv6 ::1，但后端仅监听 IPv4 时会导致 ERR_CONNECTION_REFUSED
+  // 使用 127.0.0.1 强制走 IPv4，避免该类问题
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:18888';
+  const safeSessions = useMemo(() => (Array.isArray(sessions) ? sessions : []), [sessions]);
+  const safeUserPaths = useMemo(() => (Array.isArray(userPaths) ? userPaths : []), [userPaths]);
 
   const activeSession = useMemo(
-    () => sessions.find((session) => session.id === activeSessionId),
-    [sessions, activeSessionId]
+    () => safeSessions.find((session) => session.id === activeSessionId),
+    [safeSessions, activeSessionId]
   );
 
-  const messages = activeSession?.messages ?? [];
+  const messages = useMemo(() => {
+    const raw = activeSession?.messages;
+    return Array.isArray(raw) ? raw : [];
+  }, [activeSession?.messages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -284,7 +291,7 @@ function App() {
       return '';
     }
     const session: ChatSession = await response.json();
-    setSessions((prev) => [session, ...prev]);
+    setSessions((prev) => (Array.isArray(prev) ? [session, ...prev] : [session]));
     setActiveSessionId(session.id);
     localStorage.setItem('mac_agent_active_session', session.id);
     return session.id;
@@ -303,17 +310,18 @@ function App() {
       return;
     }
     const session: ChatSession = await response.json();
-    setSessions((prev) => prev.map((item) => (item.id === sessionId ? session : item)));
+    setSessions((prev) => (Array.isArray(prev) ? prev.map((item) => (item.id === sessionId ? session : item)) : []));
     setActiveSessionId(sessionId);
     localStorage.setItem('mac_agent_active_session', sessionId);
   };
 
   const updateSessionMessages = (sessionId: string, updater: (messages: Message[]) => Message[]) => {
     setSessions((prev) =>
-      prev.map((session) => {
+      (Array.isArray(prev) ? prev : []).map((session) => {
         if (session.id !== sessionId) return session;
-        const nextMessages = updater(session.messages);
-        const shouldUpdateTitle = session.title === '新会话' && session.messages.length === 0;
+        const currentMessages: Message[] = Array.isArray(session.messages) ? session.messages : [];
+        const nextMessages = updater(currentMessages);
+        const shouldUpdateTitle = session.title === '新会话' && currentMessages.length === 0;
         return {
           ...session,
           messages: nextMessages,
@@ -659,7 +667,7 @@ function App() {
       {/* 左侧边栏 - 仅显示历史记录 */}
       <Sidebar
         userId={userId}
-        sessions={sessions}
+        sessions={safeSessions}
         activeSessionId={activeSessionId}
         onCreateSession={() => createSession()}
         onLoadSession={loadSession}
@@ -931,10 +939,11 @@ function App() {
         model={model}
         onModelChange={setModel}
         modelOptions={modelOptions}
-        userPaths={userPaths}
+        userPaths={safeUserPaths}
         onPathsChange={async (paths) => {
-          setUserPaths(paths);
-          await saveUserPaths(paths);
+          const nextPaths = Array.isArray(paths) ? paths : [];
+          setUserPaths(nextPaths);
+          await saveUserPaths(nextPaths);
         }}
         pathError={pathError}
         httpProxy={httpProxy}

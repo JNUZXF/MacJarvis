@@ -63,6 +63,36 @@ fi
 # 创建日志目录
 mkdir -p logs
 
+# 检查并启动 Redis（如果已安装但未运行）
+ensure_redis_running() {
+    if ! command -v redis-cli &> /dev/null; then
+        echo -e "${YELLOW}⚠${NC}  未检测到 redis-cli，跳过 Redis 启动检查"
+        return 0
+    fi
+
+    if redis-cli ping &> /dev/null; then
+        echo -e "${GREEN}✓${NC} Redis 已运行"
+        return 0
+    fi
+
+    echo -e "${YELLOW}检测到 Redis 未运行，尝试启动...${NC}"
+    if command -v brew &> /dev/null; then
+        brew services start redis &> /dev/null || true
+    elif command -v redis-server &> /dev/null; then
+        redis-server --daemonize yes &> /dev/null || true
+    fi
+
+    sleep 1
+    if redis-cli ping &> /dev/null; then
+        echo -e "${GREEN}✓${NC} Redis 启动成功"
+        return 0
+    fi
+
+    echo -e "${YELLOW}⚠${NC} Redis 启动失败或未安装，后端将自动降级为内存缓存"
+}
+
+ensure_redis_running
+
 # 后端准备
 cd backend
 if [ ! -d ".venv" ]; then
@@ -71,11 +101,19 @@ if [ ! -d ".venv" ]; then
 fi
 source .venv/bin/activate
 
+# SQLite 在多进程写入场景下极易出现 "database is locked"。
+# 如果未显式配置 DATABASE_URL，默认就是 SQLite，因此这里默认降级为 1 worker。
+WORKERS=2
+if [ -z "${DATABASE_URL:-}" ] || [[ "${DATABASE_URL:-}" == sqlite* ]]; then
+    WORKERS=1
+    echo -e "${YELLOW}检测到SQLite数据库（或未配置DATABASE_URL，默认SQLite），后端将使用单worker启动以避免锁冲突${NC}"
+fi
+
 # 启动后端（Gunicorn）- 使用新的应用入口 app.main:app（包含聊天记录保存功能）
 echo -e "${BLUE}启动后端服务（端口 $BACKEND_PORT）...${NC}"
 nohup gunicorn -k uvicorn.workers.UvicornWorker \
   app.main:app \
-  -w 2 \
+  -w "$WORKERS" \
   -b 0.0.0.0:$BACKEND_PORT \
   --access-logfile ../logs/backend_access.log \
   --error-logfile ../logs/backend_error.log \
@@ -90,7 +128,7 @@ cd frontend
 if [ ! -d "node_modules" ]; then
     npm install
 fi
-export VITE_API_URL=http://localhost:$BACKEND_PORT
+export VITE_API_URL=http://127.0.0.1:$BACKEND_PORT
 npm run build
 cd ..
 

@@ -2,6 +2,8 @@
 # Purpose: Cache manager for LLM responses and general caching with Redis
 import json
 import hashlib
+import time
+import fnmatch
 from typing import Any, Optional, Union
 from redis.asyncio import Redis
 import structlog
@@ -15,7 +17,7 @@ class CacheManager:
     Supports LLM response caching, session caching, and general key-value caching.
     """
     
-    def __init__(self, redis_client: Redis, default_ttl: int = 3600):
+    def __init__(self, redis_client: Optional[Redis], default_ttl: int = 3600):
         """
         Initialize cache manager.
         
@@ -25,6 +27,10 @@ class CacheManager:
         """
         self.redis = redis_client
         self.default_ttl = default_ttl
+        self._memory_store: dict[str, tuple[str, Optional[float]]] = {}
+        self._memory_enabled = redis_client is None
+        if self._memory_enabled:
+            logger.warning("cache_fallback_in_memory_enabled")
     
     def _generate_key(self, prefix: str, *args: Any) -> str:
         """
@@ -42,6 +48,37 @@ class CacheManager:
         key_data = json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
         hash_suffix = hashlib.md5(key_data.encode()).hexdigest()[:12]
         return f"{prefix}:{hash_suffix}"
+
+    def _now(self) -> float:
+        return time.time()
+
+    def _get_memory(self, key: str) -> Optional[str]:
+        item = self._memory_store.get(key)
+        if not item:
+            return None
+        value, expire_at = item
+        if expire_at is not None and expire_at <= self._now():
+            self._memory_store.pop(key, None)
+            return None
+        return value
+
+    def _set_memory(self, key: str, value: str, ttl: Optional[int]) -> bool:
+        expire_at = self._now() + ttl if ttl else None
+        self._memory_store[key] = (value, expire_at)
+        return True
+
+    def _delete_memory(self, key: str) -> bool:
+        return self._memory_store.pop(key, None) is not None
+
+    def _exists_memory(self, key: str) -> bool:
+        return self._get_memory(key) is not None
+
+    def _expire_memory(self, key: str, ttl: int) -> bool:
+        value = self._get_memory(key)
+        if value is None:
+            return False
+        self._memory_store[key] = (value, self._now() + ttl)
+        return True
     
     async def get(self, key: str) -> Optional[str]:
         """
@@ -53,6 +90,13 @@ class CacheManager:
         Returns:
             Cached value or None if not found
         """
+        if self._memory_enabled:
+            value = self._get_memory(key)
+            if value:
+                logger.debug("cache_hit", key=key)
+                return value
+            logger.debug("cache_miss", key=key)
+            return None
         try:
             value = await self.redis.get(key)
             if value:
@@ -87,14 +131,14 @@ class CacheManager:
         """
         try:
             ttl = ttl or self.default_ttl
-            
-            if nx:
+            if self._memory_enabled:
+                result = self._set_memory(key, value, ttl)
+            elif nx:
                 result = await self.redis.set(key, value, ex=ttl, nx=True)
             elif xx:
                 result = await self.redis.set(key, value, ex=ttl, xx=True)
             else:
                 result = await self.redis.setex(key, ttl, value)
-            
             if result:
                 logger.debug("cache_set", key=key, ttl=ttl)
             return bool(result)
@@ -113,6 +157,11 @@ class CacheManager:
             True if deleted, False otherwise
         """
         try:
+            if self._memory_enabled:
+                result = self._delete_memory(key)
+                if result:
+                    logger.debug("cache_delete", key=key)
+                return result
             result = await self.redis.delete(key)
             if result:
                 logger.debug("cache_delete", key=key)
@@ -132,6 +181,8 @@ class CacheManager:
             True if exists, False otherwise
         """
         try:
+            if self._memory_enabled:
+                return self._exists_memory(key)
             return await self.redis.exists(key) > 0
         except Exception as e:
             logger.error("cache_exists_error", key=key, error=str(e))
@@ -149,6 +200,8 @@ class CacheManager:
             True if expiration set, False otherwise
         """
         try:
+            if self._memory_enabled:
+                return self._expire_memory(key, ttl)
             return await self.redis.expire(key, ttl)
         except Exception as e:
             logger.error("cache_expire_error", key=key, error=str(e))
@@ -166,6 +219,17 @@ class CacheManager:
             New value after increment, or None on error
         """
         try:
+            if self._memory_enabled:
+                current = self._get_memory(key)
+                if current is None:
+                    new_value = amount
+                else:
+                    try:
+                        new_value = int(current) + amount
+                    except (TypeError, ValueError):
+                        return None
+                self._set_memory(key, str(new_value), None)
+                return new_value
             return await self.redis.incrby(key, amount)
         except Exception as e:
             logger.error("cache_increment_error", key=key, error=str(e))
@@ -182,6 +246,8 @@ class CacheManager:
             Dictionary of key-value pairs
         """
         try:
+            if self._memory_enabled:
+                return {key: self._get_memory(key) for key in keys}
             values = await self.redis.mget(keys)
             return {key: value for key, value in zip(keys, values)}
         except Exception as e:
@@ -200,6 +266,10 @@ class CacheManager:
             True if all set successfully
         """
         try:
+            if self._memory_enabled:
+                for key, value in mapping.items():
+                    self._set_memory(key, value, ttl or self.default_ttl)
+                return True
             # Use pipeline for efficiency
             async with self.redis.pipeline() as pipe:
                 for key, value in mapping.items():
@@ -221,10 +291,18 @@ class CacheManager:
             Number of keys deleted
         """
         try:
+            if self._memory_enabled:
+                keys = [key for key in self._memory_store.keys() if fnmatch.fnmatch(key, pattern)]
+                deleted = 0
+                for key in keys:
+                    if self._delete_memory(key):
+                        deleted += 1
+                if deleted:
+                    logger.info("cache_pattern_deleted", pattern=pattern, count=deleted)
+                return deleted
             keys = []
             async for key in self.redis.scan_iter(match=pattern):
                 keys.append(key)
-            
             if keys:
                 deleted = await self.redis.delete(*keys)
                 logger.info("cache_pattern_deleted", pattern=pattern, count=deleted)
@@ -399,13 +477,17 @@ class CacheManager:
         Returns:
             Dictionary with health status and stats
         """
+        if self._memory_enabled:
+            return {
+                "status": "degraded",
+                "connected": False,
+                "note": "in_memory_fallback"
+            }
         try:
             # Test connection
             await self.redis.ping()
-            
             # Get basic info
             info = await self.redis.info()
-            
             return {
                 "status": "healthy",
                 "connected": True,

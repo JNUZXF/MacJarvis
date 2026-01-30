@@ -1,9 +1,10 @@
 # File: backend/app/services/user_service.py
 # Purpose: User management service for paths and preferences
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
+import json
 
 from app.infrastructure.database.repositories import UserRepository, UserPathRepository
 from app.infrastructure.cache.cache_manager import CacheManager
@@ -187,6 +188,69 @@ class UserService:
         if not raw_path or not raw_path.strip():
             return ""
         
+    def _proxy_cache_key(self, user_id: str) -> str:
+        return f"user_proxy:{user_id}"
+
+    def _validate_proxy_url(self, proxy_url: Optional[str]) -> Optional[str]:
+        if proxy_url is None:
+            return None
+        trimmed = proxy_url.strip()
+        if not trimmed:
+            return None
+        if trimmed.startswith("http://") or trimmed.startswith("https://"):
+            return trimmed
+        raise ValueError("代理地址格式错误，必须以 http:// 或 https:// 开头")
+
+    async def get_user_proxy_config(self, user_id: str) -> dict:
+        """
+        Get user proxy configuration.
+        Returns empty values if not configured.
+        """
+        cache_key = self._proxy_cache_key(user_id)
+        cached = await self.cache.get(cache_key)
+        if cached:
+            try:
+                payload = json.loads(cached)
+                return {
+                    "user_id": user_id,
+                    "http_proxy": payload.get("http_proxy"),
+                    "https_proxy": payload.get("https_proxy"),
+                }
+            except json.JSONDecodeError:
+                await self.cache.delete(cache_key)
+
+        return {"user_id": user_id, "http_proxy": None, "https_proxy": None}
+
+    async def set_user_proxy_config(
+        self,
+        user_id: str,
+        http_proxy: Optional[str] = None,
+        https_proxy: Optional[str] = None
+    ) -> dict:
+        """
+        Set user proxy configuration.
+        """
+        await self.user_repo.get_or_create(user_id)
+
+        normalized_http = self._validate_proxy_url(http_proxy)
+        normalized_https = self._validate_proxy_url(https_proxy)
+
+        payload = {
+            "http_proxy": normalized_http,
+            "https_proxy": normalized_https,
+        }
+        cache_key = self._proxy_cache_key(user_id)
+        await self.cache.set(cache_key, json.dumps(payload, ensure_ascii=False), ttl=86400 * 30)
+
+        logger.info(
+            "user_proxy_updated",
+            user_id=user_id,
+            http_proxy=normalized_http or "",
+            https_proxy=normalized_https or ""
+        )
+
+        return {"user_id": user_id, **payload}
+
         try:
             path = Path(raw_path.strip()).resolve()
             

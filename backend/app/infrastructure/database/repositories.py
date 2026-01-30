@@ -5,7 +5,9 @@ from sqlalchemy import select, delete, update, func
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from datetime import datetime
+import asyncio
 import structlog
+from sqlalchemy.exc import OperationalError
 
 from app.infrastructure.database.models import (
     User, Session as DBSession, Message, UserPath,
@@ -13,6 +15,39 @@ from app.infrastructure.database.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _is_sqlite_locked_error(err: OperationalError) -> bool:
+    # SQLAlchemy 会包装底层 sqlite3.OperationalError
+    msg = str(err).lower()
+    return "database is locked" in msg or ("sqlite" in msg and "locked" in msg)
+
+
+async def _run_with_sqlite_write_retry(action_name: str, fn, *, retries: int = 5) -> object:
+    """
+    SQLite 在并发写入下可能出现短暂锁冲突；这里做小幅重试，避免直接 500。
+    生产更推荐 PostgreSQL；SQLite 下建议配合单 worker + busy_timeout/WAL。
+    """
+    delay_s = 0.05
+    last_err: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return await fn()
+        except OperationalError as e:
+            if not _is_sqlite_locked_error(e):
+                raise
+            last_err = e
+            logger.warning(
+                "sqlite_database_locked_retrying",
+                action=action_name,
+                attempt=attempt,
+                retries=retries,
+                delay_ms=int(delay_s * 1000),
+            )
+            await asyncio.sleep(delay_s)
+            delay_s = min(delay_s * 2, 0.8)
+    assert last_err is not None
+    raise last_err
 
 
 class UserRepository:
@@ -97,13 +132,16 @@ class SessionRepository:
     
     async def update_title(self, session_id: str, title: str) -> bool:
         """Update session title"""
-        result = await self.db.execute(
-            update(DBSession)
-            .where(DBSession.id == session_id)
-            .values(title=title, updated_at=datetime.utcnow())
-        )
-        await self.db.flush()
-        return result.rowcount > 0
+        async def _op():
+            result = await self.db.execute(
+                update(DBSession)
+                .where(DBSession.id == session_id)
+                .values(title=title, updated_at=datetime.utcnow())
+            )
+            await self.db.flush()
+            return result.rowcount > 0
+
+        return bool(await _run_with_sqlite_write_retry("session_update_title", _op))
     
     async def delete(self, session_id: str) -> bool:
         """Delete session and all messages"""
@@ -141,18 +179,21 @@ class MessageRepository:
         metadata: Optional[dict] = None
     ) -> Message:
         """Create new message"""
-        message = Message(
-            id=message_id,
-            session_id=session_id,
-            role=role,
-            content=content,
-            tool_calls=tool_calls or [],
-            tool_call_results=tool_call_results,
-            message_metadata=metadata
-        )
-        self.db.add(message)
-        await self.db.flush()
-        return message
+        async def _op():
+            message = Message(
+                id=message_id,
+                session_id=session_id,
+                role=role,
+                content=content,
+                tool_calls=tool_calls or [],
+                tool_call_results=tool_call_results,
+                message_metadata=metadata
+            )
+            self.db.add(message)
+            await self.db.flush()
+            return message
+
+        return await _run_with_sqlite_write_retry("message_create", _op)  # type: ignore[return-value]
     
     async def list_by_session(
         self,

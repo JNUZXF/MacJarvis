@@ -38,6 +38,38 @@ class UserPathsResponse(BaseModel):
         }
 
 
+class UserProxyConfigRequest(BaseModel):
+    """Request schema for user proxy configuration"""
+    user_id: str = Field(..., description="User identifier")
+    http_proxy: Optional[str] = Field(None, description="HTTP proxy URL")
+    https_proxy: Optional[str] = Field(None, description="HTTPS proxy URL")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": "user123",
+                "http_proxy": "http://127.0.0.1:7897",
+                "https_proxy": "http://127.0.0.1:7897"
+            }
+        }
+
+
+class UserProxyConfigResponse(BaseModel):
+    """Response schema for user proxy configuration"""
+    user_id: str
+    http_proxy: Optional[str] = None
+    https_proxy: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": "user123",
+                "http_proxy": "http://127.0.0.1:7897",
+                "https_proxy": "http://127.0.0.1:7897"
+            }
+        }
+
+
 class FileUploadResponse(BaseModel):
     """Response schema for file upload"""
     id: str = Field(..., description="File identifier")
