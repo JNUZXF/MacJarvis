@@ -101,12 +101,12 @@ if [ ! -d ".venv" ]; then
 fi
 source .venv/bin/activate
 
-# SQLite 在多进程写入场景下极易出现 "database is locked"。
-# 如果未显式配置 DATABASE_URL，默认就是 SQLite，因此这里默认降级为 1 worker。
+# PostgreSQL 支持多 worker，SQLite 建议单 worker
 WORKERS=2
-if [ -z "${DATABASE_URL:-}" ] || [[ "${DATABASE_URL:-}" == sqlite* ]]; then
+if [ -n "${DATABASE_URL:-}" ] && [[ "${DATABASE_URL:-}" == sqlite* ]]; then
     WORKERS=1
-    echo -e "${YELLOW}检测到SQLite数据库（或未配置DATABASE_URL，默认SQLite），后端将使用单worker启动以避免锁冲突${NC}"
+    echo -e "${YELLOW}检测到SQLite数据库，后端将使用单worker启动以避免锁冲突${NC}"
+    echo -e "${YELLOW}⚠${NC}  生产环境建议使用 PostgreSQL 以获得更好的并发性能"
 fi
 
 # 启动后端（Gunicorn）- 使用新的应用入口 app.main:app（包含聊天记录保存功能）

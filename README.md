@@ -367,7 +367,74 @@ OPENAI_MAX_TOOL_TURNS=8      # 最大工具调用轮数
 # 示例: HTTP_PROXY=http://127.0.0.1:7897
 HTTP_PROXY=                  # HTTP代理地址
 HTTPS_PROXY=                 # HTTPS代理地址
+
+# 数据库配置（PostgreSQL - 推荐用于生产环境）
+# 格式: postgresql+asyncpg://user:password@host:port/database
+# 示例: postgresql+asyncpg://postgres:postgres@localhost:5433/mac_agent
+# 注意: 默认使用端口 5433 以避免与 Cursor 编辑器或其他服务冲突
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/mac_agent
+
+# 数据库连接池配置
+DB_POOL_SIZE=20              # 连接池大小
+DB_MAX_OVERFLOW=10           # 最大溢出连接数
+DB_ECHO=false                # 是否打印 SQL 语句（开发时可设为 true）
 ```
+
+### 数据库配置
+
+#### PostgreSQL（推荐）
+
+系统默认使用 PostgreSQL 作为数据库，提供更好的并发性能和稳定性。
+
+**一键快速设置（macOS）**：
+```bash
+# 运行自动设置脚本（推荐）
+./scripts/setup_postgresql.sh
+```
+
+脚本会自动：
+- ✅ 检查并安装 PostgreSQL（如果未安装）
+- ✅ 启动 PostgreSQL 服务
+- ✅ 创建数据库 `mac_agent`
+- ✅ 配置 `.env` 文件
+- ✅ 运行数据库迁移
+
+**手动安装**：
+```bash
+# 使用 Homebrew 安装
+brew install postgresql@15
+brew services start postgresql@15
+
+# 创建数据库
+psql postgres
+CREATE DATABASE mac_agent;
+\q
+```
+
+**配置环境变量**：
+```bash
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/mac_agent
+```
+
+**运行数据库迁移**：
+```bash
+cd backend
+source .venv/bin/activate
+alembic upgrade head
+```
+
+📚 **详细安装指南**：查看 [PostgreSQL 安装和配置指南](docs/setup/postgresql_setup_macos.md)
+
+#### SQLite（仅用于开发）
+
+如果需要在开发环境使用 SQLite：
+
+```bash
+# 在 .env 中配置
+DATABASE_URL=sqlite+aiosqlite:///./backend_data/app.db
+```
+
+⚠️ **注意**：SQLite 不支持高并发写入，生产环境不推荐使用。
 
 ### 支持的模型
 
@@ -840,6 +907,49 @@ docker compose -f docker-compose.yml up -d --build
    # 启动脚本会自动设置: http://localhost:18888
    echo $VITE_API_URL
    ```
+
+### 数据库连接问题
+
+#### PostgreSQL 连接失败
+
+**现象**：后端启动失败或健康检查显示数据库不可用。
+
+**处理**：
+1. **检查 PostgreSQL 是否运行**：
+   ```bash
+   brew services list | grep postgresql
+   # 或
+   psql -d mac_agent
+   ```
+
+2. **启动 PostgreSQL**：
+   ```bash
+   brew services start postgresql@15
+   ```
+
+3. **检查数据库是否存在**：
+   ```bash
+   psql postgres
+   \l  # 查看数据库列表
+   CREATE DATABASE mac_agent;  # 如果不存在则创建
+   ```
+
+4. **验证连接字符串**：
+   - 检查 `.env` 中的 `DATABASE_URL` 格式是否正确
+   - 确认用户名、密码、数据库名正确
+
+📚 **详细排查**：查看 [PostgreSQL 安装和配置指南](docs/setup/postgresql_setup_macos.md)
+
+#### SQLite database is locked（已弃用）
+
+**现象**：使用 SQLite 时，初始化会话或新建会话返回 500。
+
+**原因**：SQLite 在并发写入时触发锁冲突。
+
+**处理**：
+1. 生产环境**强烈建议切换到 PostgreSQL**
+2. 如果必须使用 SQLite，确认后端使用单 worker（`start_prod.sh` 已自动处理）
+3. 重启后端释放锁：`./stop_prod.sh && ./start_prod.sh`
 
 ### 端口被占用
 

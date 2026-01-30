@@ -53,13 +53,16 @@ class Settings(BaseSettings):
     ]
     
     # Database Configuration
-    DATABASE_URL: str = "sqlite+aiosqlite:///./backend_data/app.db"
+    # PostgreSQL 配置（推荐用于生产环境）
+    # 格式: postgresql+asyncpg://user:password@host:port/database
+    # 示例: postgresql+asyncpg://postgres:password@localhost:5433/mac_agent
+    # 注意: 默认使用端口 5433 以避免与 Cursor 编辑器或其他服务冲突
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/mac_agent"
     DB_POOL_SIZE: int = 20
     DB_MAX_OVERFLOW: int = 10
     DB_ECHO: bool = False
-    # SQLite 并发写入时容易出现 "database is locked"：
-    # - busy_timeout 用于等待锁释放（单位毫秒）
-    # - 在多进程/多线程场景下建议配合 WAL
+    # SQLite 配置（仅用于开发环境，生产环境不推荐）
+    # SQLite 并发写入时容易出现 "database is locked"
     SQLITE_BUSY_TIMEOUT_MS: int = 30000
     
     # Redis Configuration

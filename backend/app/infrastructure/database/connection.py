@@ -43,7 +43,8 @@ def get_engine(settings: Settings):
         }
     else:
         # PostgreSQL/MySQL use connection pooling
-        pool_class = QueuePool
+        # For async engines, don't specify pool_class, let SQLAlchemy choose automatically
+        pool_class = None
         pool_kwargs = {
             "pool_size": settings.DB_POOL_SIZE,
             "max_overflow": settings.DB_MAX_OVERFLOW,
@@ -52,13 +53,23 @@ def get_engine(settings: Settings):
         }
         connect_args = {}
     
-    _engine = create_async_engine(
-        settings.DATABASE_URL,
-        echo=settings.DB_ECHO,
-        poolclass=pool_class,
-        connect_args=connect_args,
-        **pool_kwargs
-    )
+    # Create async engine with appropriate pool configuration
+    if pool_class is not None:
+        _engine = create_async_engine(
+            settings.DATABASE_URL,
+            echo=settings.DB_ECHO,
+            poolclass=pool_class,
+            connect_args=connect_args,
+            **pool_kwargs
+        )
+    else:
+        # For PostgreSQL, let SQLAlchemy use default async pool
+        _engine = create_async_engine(
+            settings.DATABASE_URL,
+            echo=settings.DB_ECHO,
+            connect_args=connect_args,
+            **pool_kwargs
+        )
 
     # SQLite 连接级 PRAGMA：减少读写互斥、提升并发友好度，并设置 busy_timeout
     if settings.DATABASE_URL.startswith("sqlite"):

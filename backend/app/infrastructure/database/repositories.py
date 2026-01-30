@@ -108,11 +108,15 @@ class SessionRepository:
     
     async def create(self, user_id: str, title: str, session_id: str) -> DBSession:
         """Create new session"""
-        session = DBSession(id=session_id, user_id=user_id, title=title)
-        self.db.add(session)
-        await self.db.flush()
+        async def _op():
+            session = DBSession(id=session_id, user_id=user_id, title=title)
+            self.db.add(session)
+            await self.db.flush()
+            return session
+
+        session = await _run_with_sqlite_write_retry("session_create", _op)
         logger.info("session_created", session_id=session_id, user_id=user_id)
-        return session
+        return session  # type: ignore[return-value]
     
     async def list_by_user(
         self,
