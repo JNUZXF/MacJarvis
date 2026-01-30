@@ -16,10 +16,11 @@ import {
   X
 } from 'lucide-react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import type { Message, ToolCall, ChatSession, ChatAttachment } from './types';
+import type { Message, ToolCall, ChatSession, ChatAttachment, TTSConfig } from './types';
 import { ChatMessage } from './components/ChatMessage';
 import { Sidebar } from './components/Sidebar';
 import { Settings } from './components/Settings';
+import { TTSManager } from './utils/tts-manager';
 import { v4 as uuidv4 } from 'uuid';
 import styles from './App.module.css';
 
@@ -60,6 +61,14 @@ function App() {
   const [httpsProxy, setHttpsProxy] = useState('');
   const [proxyError, setProxyError] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [ttsConfig, setTTSConfig] = useState<TTSConfig>({
+    enabled: false,
+    voice: 'longyingtao_v3',
+    model: 'cosyvoice-v3-flash',
+    minSegmentLength: 10,
+    maxSegmentLength: 200,
+    preferSegmentLength: 50,
+  });
   const [artifacts] = useState<Artifact[]>([
     { id: 1, title: '系统诊断报告 v1.0', type: 'scroll', date: new Date().toLocaleDateString('zh-CN') },
     { id: 2, title: '自动化脚本集合', type: 'code', date: new Date().toLocaleDateString('zh-CN') }
@@ -93,6 +102,7 @@ function App() {
     }
   ]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const ttsManagerRef = useRef<TTSManager | null>(null);
   // 默认使用18888端口（避免端口冲突）
   // 注意：macOS/浏览器可能将 localhost 解析为 IPv6 ::1，但后端仅监听 IPv4 时会导致 ERR_CONNECTION_REFUSED
   // 使用 127.0.0.1 强制走 IPv4，避免该类问题
@@ -213,6 +223,37 @@ function App() {
     }
   };
 
+  const loadTTSConfig = () => {
+    try {
+      const saved = localStorage.getItem('mac_agent_tts_config');
+      if (saved) {
+        const config = JSON.parse(saved);
+        setTTSConfig(config);
+      }
+    } catch (err) {
+      console.error('Failed to load TTS config:', err);
+    }
+  };
+
+  const saveTTSConfig = (config: TTSConfig) => {
+    try {
+      localStorage.setItem('mac_agent_tts_config', JSON.stringify(config));
+    } catch (err) {
+      console.error('Failed to save TTS config:', err);
+    }
+  };
+
+  const handleTTSConfigChange = (updates: Partial<TTSConfig>) => {
+    const newConfig = { ...ttsConfig, ...updates };
+    setTTSConfig(newConfig);
+    saveTTSConfig(newConfig);
+
+    // 更新 TTS 管理器配置
+    if (ttsManagerRef.current) {
+      ttsManagerRef.current.updateConfig(newConfig);
+    }
+  };
+
   const saveProxyConfig = async () => {
     const currentUserId = userId || localStorage.getItem('mac_agent_user_id');
     if (!currentUserId) return;
@@ -247,6 +288,7 @@ function App() {
     initSessionState().catch((err) => {
       console.error('Failed to init session:', err);
     });
+    loadTTSConfig();
   }, []);
 
   useEffect(() => {
@@ -255,6 +297,20 @@ function App() {
       fetchProxyConfig(userId);
     }
   }, [userId]);
+
+  // 初始化 TTS 管理器
+  useEffect(() => {
+    if (!ttsManagerRef.current) {
+      ttsManagerRef.current = new TTSManager(ttsConfig, apiUrl);
+    }
+  }, [apiUrl]);
+
+  // 更新 TTS 管理器配置
+  useEffect(() => {
+    if (ttsManagerRef.current) {
+      ttsManagerRef.current.updateConfig(ttsConfig);
+    }
+  }, [ttsConfig]);
 
   useEffect(() => {
     if (activeSessionId) {
@@ -443,7 +499,7 @@ function App() {
                 updatedMsg.content = `${currentMsg.content || ''}${data}`;
                 const blocks = currentMsg.blocks ? [...currentMsg.blocks] : [];
                 const lastBlock = blocks[blocks.length - 1];
-                
+
                 if (lastBlock?.type === 'content') {
                   blocks[blocks.length - 1] = {
                     ...lastBlock,
@@ -453,6 +509,11 @@ function App() {
                   blocks.push({ type: 'content', content: data });
                 }
                 updatedMsg.blocks = blocks;
+
+                // TTS: 将新内容发送给 TTS 管理器
+                if (ttsManagerRef.current && ttsConfig.enabled) {
+                  ttsManagerRef.current.addText(data);
+                }
               } else if (ev.event === 'tool_start') {
                 needsUpdate = true;
                 const toolCall: ToolCall = {
@@ -585,6 +646,10 @@ function App() {
         },
         onclose() {
           setIsLoading(false);
+          // TTS: 刷新缓冲区，播放剩余文本
+          if (ttsManagerRef.current && ttsConfig.enabled) {
+            ttsManagerRef.current.flush();
+          }
         }
       });
     } catch (err) {
@@ -952,6 +1017,9 @@ function App() {
         onHttpsProxyChange={setHttpsProxy}
         proxyError={proxyError}
         onSaveProxy={saveProxyConfig}
+        ttsConfig={ttsConfig}
+        onTTSConfigChange={handleTTSConfigChange}
+        apiUrl={apiUrl}
       />
     </div>
   );

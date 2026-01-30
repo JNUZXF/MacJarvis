@@ -6,6 +6,8 @@ import React, { useState } from 'react';
 import { X, Plus } from 'lucide-react';
 import styles from './Settings.module.css';
 import clsx from 'clsx';
+import { TTSSettings } from './TTSSettings';
+import type { TTSConfig } from '../types';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -22,6 +24,9 @@ interface SettingsProps {
   onHttpsProxyChange: (proxy: string) => void;
   proxyError: string;
   onSaveProxy: () => void;
+  ttsConfig: TTSConfig;
+  onTTSConfigChange: (config: Partial<TTSConfig>) => void;
+  apiUrl: string;
 }
 
 export const Settings: React.FC<SettingsProps> = ({
@@ -39,6 +44,9 @@ export const Settings: React.FC<SettingsProps> = ({
   onHttpsProxyChange,
   proxyError,
   onSaveProxy,
+  ttsConfig,
+  onTTSConfigChange,
+  apiUrl,
 }) => {
   const [pathInput, setPathInput] = useState('');
 
@@ -239,6 +247,15 @@ export const Settings: React.FC<SettingsProps> = ({
                 💡 <strong>代理加速：</strong>配置代理可加速API请求，特别是在网络受限的环境中。留空则不使用代理。支持 Clash、V2Ray 等工具。
               </p>
             </div>
+          </div>
+
+          {/* TTS 设置 */}
+          <div className={styles.section}>
+            <TTSSettings
+              config={ttsConfig}
+              apiUrl={apiUrl}
+              onConfigChange={onTTSConfigChange}
+            />
           </div>
         </div>
 

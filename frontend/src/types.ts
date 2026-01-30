@@ -48,3 +48,19 @@ export interface ChatAttachment {
   filename: string;
   content_type?: string | null;
 }
+
+export interface TTSConfig {
+  enabled: boolean;
+  voice: string;
+  model: string;
+  minSegmentLength: number;
+  maxSegmentLength: number;
+  preferSegmentLength: number;
+}
+
+export interface TTSVoice {
+  id: string;
+  name: string;
+  language: string;
+  gender: 'male' | 'female';
+}

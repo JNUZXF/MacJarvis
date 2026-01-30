@@ -55,3 +55,7 @@ pylint==3.3.2
 opentelemetry-api==1.28.2
 opentelemetry-sdk==1.28.2
 opentelemetry-instrumentation-fastapi==0.49b2
+
+# TTS (Text-to-Speech)
+dashscope==1.25.10
+pyaudio==0.2.14
