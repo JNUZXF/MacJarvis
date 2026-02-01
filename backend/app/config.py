@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     LLM_CACHE_ENABLED: bool = True
     LLM_CACHE_TTL: int = 3600
     
+    # DashScope (TTS) Configuration
+    DASHSCOPE_API_KEY: str = ""
+    
     # Allowed Models
     ALLOWED_MODELS: list[str] = [
         "openai/gpt-4o-mini",

@@ -1,17 +1,31 @@
 .ttsSettings {
-  padding: 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0;
 }
 
 .sectionTitle {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 20px;
-  color: #fff;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #2c241d;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.sectionTitle::before {
+  content: '';
+  width: 0.25rem;
+  height: 1.5rem;
+  background-color: #d4af37;
+  border-radius: 9999px;
 }
 
 .settingRow {
-  margin-bottom: 24px;
+  margin-bottom: 1.5rem;
+}
+
+.settingRow:last-child {
+  margin-bottom: 0;
 }
 
 /* Switch 开关样式 */
@@ -35,7 +49,7 @@
   display: inline-block;
   width: 48px;
   height: 26px;
-  background-color: rgba(255, 255, 255, 0.2);
+  background-color: #e8dcc4;
   border-radius: 13px;
   transition: background-color 0.2s;
 }
@@ -50,10 +64,11 @@
   background-color: white;
   border-radius: 50%;
   transition: transform 0.2s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .switchInput:checked + .switchSlider {
-  background-color: #4a9eff;
+  background-color: #d4af37;
 }
 
 .switchInput:checked + .switchSlider::before {
@@ -61,9 +76,9 @@
 }
 
 .switchText {
-  font-size: 16px;
-  color: #fff;
-  font-weight: 500;
+  font-size: 0.875rem;
+  color: #4a3f35;
+  font-weight: 600;
 }
 
 /* Label 样式 */
@@ -71,51 +86,50 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.9);
-  margin-bottom: 8px;
-  font-weight: 500;
+  font-size: 0.875rem;
+  color: #4a3f35;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
 }
 
 .labelValue {
-  color: #4a9eff;
-  font-weight: 600;
+  color: #d4af37;
+  font-weight: 700;
 }
 
 /* Select 下拉框样式 */
 .select {
   width: 100%;
-  padding: 10px 12px;
-  background-color: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  color: #fff;
-  font-size: 14px;
+  padding: 0.5rem 1rem;
+  background-color: white;
+  border: 1px solid #e8dcc4;
+  border-radius: 0.5rem;
+  color: #4a3f35;
+  font-size: 0.875rem;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .select:hover {
-  background-color: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: #d4af37;
 }
 
 .select:focus {
   outline: none;
-  border-color: #4a9eff;
-  background-color: rgba(255, 255, 255, 0.15);
+  border-color: #d4af37;
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.3);
 }
 
 .select option {
-  background-color: #1e1e1e;
-  color: #fff;
+  background-color: white;
+  color: #4a3f35;
 }
 
 /* Slider 滑块样式 */
 .slider {
   width: 100%;
   height: 6px;
-  background: rgba(255, 255, 255, 0.1);
+  background: #e8dcc4;
   border-radius: 3px;
   outline: none;
   -webkit-appearance: none;
@@ -127,7 +141,7 @@
   appearance: none;
   width: 18px;
   height: 18px;
-  background: #4a9eff;
+  background: #d4af37;
   border-radius: 50%;
   cursor: pointer;
   transition: all 0.2s;
@@ -135,13 +149,13 @@
 
 .slider::-webkit-slider-thumb:hover {
   transform: scale(1.2);
-  box-shadow: 0 0 10px rgba(74, 158, 255, 0.5);
+  box-shadow: 0 0 10px rgba(212, 175, 55, 0.5);
 }
 
 .slider::-moz-range-thumb {
   width: 18px;
   height: 18px;
-  background: #4a9eff;
+  background: #d4af37;
   border-radius: 50%;
   border: none;
   cursor: pointer;
@@ -150,37 +164,37 @@
 
 .slider::-moz-range-thumb:hover {
   transform: scale(1.2);
-  box-shadow: 0 0 10px rgba(74, 158, 255, 0.5);
+  box-shadow: 0 0 10px rgba(212, 175, 55, 0.5);
 }
 
 /* Description 说明文字 */
 .description {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
-  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #a08b73;
+  margin-top: 0.5rem;
   line-height: 1.4;
 }
 
 /* Loading 状态 */
 .loading {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.875rem;
+  color: #a08b73;
   font-style: italic;
 }
 
 /* 高级设置折叠面板 */
 .advancedSettings {
-  margin-top: 20px;
-  padding: 16px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #f5efe1;
+  border-radius: 0.5rem;
+  border: 1px solid #e8dcc4;
 }
 
 .advancedSummary {
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
+  color: #4a3f35;
   cursor: pointer;
   user-select: none;
   list-style: none;
@@ -198,6 +212,7 @@
   display: inline-block;
   transition: transform 0.2s;
   font-size: 10px;
+  color: #d4af37;
 }
 
 .advancedSettings[open] .advancedSummary::before {
@@ -205,12 +220,12 @@
 }
 
 .advancedSettings[open] {
-  padding-bottom: 20px;
+  padding-bottom: 1rem;
 }
 
 .advancedSettings .settingRow {
-  margin-top: 20px;
-  margin-bottom: 20px;
+  margin-top: 1.25rem;
+  margin-bottom: 1.25rem;
 }
 
 .advancedSettings .settingRow:last-child {

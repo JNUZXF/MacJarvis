@@ -15,14 +15,29 @@ from pydantic import BaseModel
 import dashscope
 from dashscope.audio.tts_v2 import SpeechSynthesizer, AudioFormat, ResultCallback
 
+from app.config import get_settings
+
 router = APIRouter()
 
-# 从环境变量获取 API Key
-DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
-if not DASHSCOPE_API_KEY:
-    raise ValueError("DASHSCOPE_API_KEY not found in environment variables")
+# 延迟初始化 DashScope API Key
+def get_dashscope_api_key() -> str:
+    """获取 DashScope API Key，优先从配置获取，如果不存在则从环境变量获取"""
+    settings = get_settings()
+    api_key = settings.DASHSCOPE_API_KEY
+    
+    # 如果配置中没有，尝试从环境变量获取
+    if not api_key:
+        api_key = os.getenv("DASHSCOPE_API_KEY")
+    
+    if not api_key:
+        raise ValueError("DASHSCOPE_API_KEY not found. Please set it in .env file or environment variables.")
+    return api_key
 
-dashscope.api_key = DASHSCOPE_API_KEY
+# 初始化 DashScope（延迟到第一次使用时）
+def init_dashscope():
+    """初始化 DashScope API Key"""
+    if not dashscope.api_key:
+        dashscope.api_key = get_dashscope_api_key()
 
 
 class TTSRequest(BaseModel):
@@ -85,6 +100,9 @@ async def synthesize_speech_stream(
     Yields:
         音频数据块（bytes）
     """
+    # 初始化 DashScope API Key
+    init_dashscope()
+    
     callback = StreamingCallback()
 
     # 创建合成器
@@ -188,18 +206,31 @@ async def synthesize_speech_streaming(request: TTSRequest):
 @router.get("/voices")
 async def list_voices():
     """
-    获取可用的音色列表
+    获取可用的音色列表和模型列表
 
-    返回所有支持的音色选项
+    返回所有支持的音色选项和模型选项，以及音色与模型的关联关系
     """
     voices = [
-        {"id": "longyingtao_v3", "name": "龙吟桃", "language": "zh-CN", "gender": "female"},
-        {"id": "zhichu_v3", "name": "知初", "language": "zh-CN", "gender": "female"},
-        {"id": "zhitian_v3", "name": "知甜", "language": "zh-CN", "gender": "female"},
-        {"id": "zhiyan_v3", "name": "知燕", "language": "zh-CN", "gender": "female"},
-        {"id": "zhibei_v3", "name": "知贝", "language": "zh-CN", "gender": "female"},
-        {"id": "zhimiao_v3", "name": "知妙", "language": "zh-CN", "gender": "female"},
-        {"id": "zhishuo_v3", "name": "知硕", "language": "zh-CN", "gender": "male"},
-        {"id": "zhiyu_v3", "name": "知语", "language": "zh-CN", "gender": "male"},
+        {"id": "longyingxiao_v3", "name": "龙吟霄", "language": "zh-CN", "gender": "female", "models": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
+        {"id": "longyingtao_v3", "name": "龙吟桃", "language": "zh-CN", "gender": "female", "models": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
+        {"id": "longxing_v3", "name": "龙星", "language": "zh-CN", "gender": "male", "models": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
+        {"id": "longfeifei_v3", "name": "龙菲菲", "language": "zh-CN", "gender": "female", "models": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
+        {"id": "cosyvoice-v3-plus-feifei-15100975513d4875a83113a8200d0d9e", "name": "Feifei (Plus)", "language": "zh-CN", "gender": "female", "models": ["cosyvoice-v3-plus"]},
+        {"id": "zhichu_v3", "name": "知初", "language": "zh-CN", "gender": "female", "models": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
+        {"id": "zhitian_v3", "name": "知甜", "language": "zh-CN", "gender": "female", "models": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
+        {"id": "zhiyan_v3", "name": "知燕", "language": "zh-CN", "gender": "female", "models": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
+        {"id": "zhibei_v3", "name": "知贝", "language": "zh-CN", "gender": "female", "models": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
+        {"id": "zhimiao_v3", "name": "知妙", "language": "zh-CN", "gender": "female", "models": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
+        {"id": "zhishuo_v3", "name": "知硕", "language": "zh-CN", "gender": "male", "models": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
+        {"id": "zhiyu_v3", "name": "知语", "language": "zh-CN", "gender": "male", "models": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
     ]
-    return {"voices": voices}
+    
+    models = [
+        {"id": "cosyvoice-v3-flash", "name": "CosyVoice V3 Flash", "description": "快速响应模型"},
+        {"id": "cosyvoice-v3-plus", "name": "CosyVoice V3 Plus", "description": "高质量模型"},
+    ]
+    
+    return {
+        "voices": voices,
+        "models": models
+    }

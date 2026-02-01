@@ -20,6 +20,7 @@ import type { Message, ToolCall, ChatSession, ChatAttachment, TTSConfig } from '
 import { ChatMessage } from './components/ChatMessage';
 import { Sidebar } from './components/Sidebar';
 import { Settings } from './components/Settings';
+import { VoiceButton } from './components/VoiceButton';
 import { TTSManager } from './utils/tts-manager';
 import { v4 as uuidv4 } from 'uuid';
 import styles from './App.module.css';
@@ -870,6 +871,25 @@ function App() {
             <div className="relative group">
               <div className="absolute -inset-1 bg-gradient-to-r from-[#d4af37]/20 via-[#e8dcc4]/20 to-[#d4af37]/20 rounded-[2rem] blur opacity-30 group-hover:opacity-60 transition duration-1000" />
               <div className="relative bg-white/70 backdrop-blur-2xl rounded-[1.8rem] border border-[#e8dcc4] shadow-2xl flex items-end p-2 pr-4 min-h-[64px] transition-all duration-300 focus-within:border-[#d4af37]/50 focus-within:shadow-[0_0_20px_rgba(212,175,55,0.15)]">
+                {/* 语音识别按钮 */}
+                <div className="flex items-center">
+                  <VoiceButton
+                    apiUrl={apiUrl}
+                    onTranscriptUpdate={(text) => setInput(text)}
+                    onAutoSend={(text) => {
+                      setInput(text);
+                      // 延迟一下让状态更新，然后自动提交
+                      setTimeout(() => {
+                        const form = document.querySelector('form');
+                        if (form) {
+                          form.requestSubmit();
+                        }
+                      }, 100);
+                    }}
+                    disabled={isLoading || isUploading}
+                  />
+                </div>
+
                 <button 
                   type="button"
                   className="p-3 hover:bg-[#fdfbf7] rounded-full transition-colors group/upload relative"

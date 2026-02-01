@@ -63,4 +63,11 @@ export interface TTSVoice {
   name: string;
   language: string;
   gender: 'male' | 'female';
+  models?: string[]; // 该音色支持的模型列表
+}
+
+export interface TTSModel {
+  id: string;
+  name: string;
+  description: string;
 }

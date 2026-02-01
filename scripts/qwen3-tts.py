@@ -43,10 +43,19 @@ def get_timestamp():
 # 若没有将API Key配置到环境变量中，需将your-api-key替换为自己的API Key
 dashscope.api_key = DASHSCOPE_API_KEY
 
+# 音色列表
+[
+    "longyingxiao_v3",
+    "longyingtao_v3",
+    "longxing_v3",
+    "longfeifei_v3",
+    "cosyvoice-v3-plus-feifei-15100975513d4875a83113a8200d0d9e"
+]
+
 # 模型
-model = "cosyvoice-v3-flash"
+model = "cosyvoice-v3-plus"
 # 音色
-voice = "longyingtao_v3"
+voice = "cosyvoice-v3-plus-feifei-15100975513d4875a83113a8200d0d9e"
 
 # 定义回调接口
 class Callback(ResultCallback):
