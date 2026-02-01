@@ -24,6 +24,11 @@ class ChatRequest(BaseModel):
     )
     stream: bool = Field(True, description="Whether to stream response")
     
+    # TTS配置字段
+    tts_enabled: bool = Field(False, description="是否启用TTS语音合成")
+    tts_voice: str = Field("longyingtao_v3", description="TTS音色")
+    tts_model: str = Field("cosyvoice-v3-flash", description="TTS模型")
+    
     class Config:
         json_schema_extra = {
             "example": {
@@ -31,7 +36,10 @@ class ChatRequest(BaseModel):
                 "user_id": "user123",
                 "session_id": "session456",
                 "model": "gpt-4o-mini",
-                "stream": True
+                "stream": True,
+                "tts_enabled": False,
+                "tts_voice": "longyingtao_v3",
+                "tts_model": "cosyvoice-v3-flash"
             }
         }
 

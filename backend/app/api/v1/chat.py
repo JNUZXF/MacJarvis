@@ -62,7 +62,10 @@ async def chat_endpoint(
                 message=request.message,
                 model=request.model,
                 attachments=[att.model_dump() for att in (request.attachments or [])],
-                stream=request.stream
+                stream=request.stream,
+                tts_enabled=request.tts_enabled,
+                tts_voice=request.tts_voice,
+                tts_model=request.tts_model
             ):
                 event_type = event.get("type")
                 
@@ -84,6 +87,34 @@ async def chat_endpoint(
                         "tool_call_id": event.get("tool_call_id")
                     }
                     yield f"event: tool_result\ndata: {json.dumps(data, default=str)}\n\n"
+                
+                elif event_type == "tts_segment_start":
+                    data = {
+                        "segment_id": event.get("segment_id"),
+                        "text": event.get("text")
+                    }
+                    yield f"event: tts_segment_start\ndata: {json.dumps(data)}\n\n"
+                
+                elif event_type == "tts_audio":
+                    data = {
+                        "segment_id": event.get("segment_id"),
+                        "audio_chunk": event.get("audio_chunk"),
+                        "is_final": event.get("is_final")
+                    }
+                    yield f"event: tts_audio\ndata: {json.dumps(data)}\n\n"
+                
+                elif event_type == "tts_segment_end":
+                    data = {
+                        "segment_id": event.get("segment_id")
+                    }
+                    yield f"event: tts_segment_end\ndata: {json.dumps(data)}\n\n"
+                
+                elif event_type == "tts_error":
+                    data = {
+                        "segment_id": event.get("segment_id"),
+                        "error": event.get("error")
+                    }
+                    yield f"event: tts_error\ndata: {json.dumps(data)}\n\n"
                 
                 elif event_type == "error":
                     error_msg = event.get("error", "Unknown error")

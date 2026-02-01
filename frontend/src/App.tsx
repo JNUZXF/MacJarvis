@@ -21,7 +21,7 @@ import { ChatMessage } from './components/ChatMessage';
 import { Sidebar } from './components/Sidebar';
 import { Settings } from './components/Settings';
 import { VoiceButton } from './components/VoiceButton';
-import { TTSManager } from './utils/tts-manager';
+import { TTSPlayer } from './utils/tts-manager';
 import { v4 as uuidv4 } from 'uuid';
 import styles from './App.module.css';
 
@@ -103,7 +103,7 @@ function App() {
     }
   ]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const ttsManagerRef = useRef<TTSManager | null>(null);
+  const ttsPlayerRef = useRef<TTSPlayer | null>(null);
   // 默认使用18888端口（避免端口冲突）
   // 注意：macOS/浏览器可能将 localhost 解析为 IPv6 ::1，但后端仅监听 IPv4 时会导致 ERR_CONNECTION_REFUSED
   // 使用 127.0.0.1 强制走 IPv4，避免该类问题
@@ -249,9 +249,9 @@ function App() {
     setTTSConfig(newConfig);
     saveTTSConfig(newConfig);
 
-    // 更新 TTS 管理器配置
-    if (ttsManagerRef.current) {
-      ttsManagerRef.current.updateConfig(newConfig);
+    // 更新 TTS 播放器配置
+    if (ttsPlayerRef.current) {
+      ttsPlayerRef.current.updateConfig(newConfig);
     }
   };
 
@@ -299,17 +299,17 @@ function App() {
     }
   }, [userId]);
 
-  // 初始化 TTS 管理器
+  // 初始化 TTS 播放器
   useEffect(() => {
-    if (!ttsManagerRef.current) {
-      ttsManagerRef.current = new TTSManager(ttsConfig, apiUrl);
+    if (!ttsPlayerRef.current) {
+      ttsPlayerRef.current = new TTSPlayer(ttsConfig);
     }
-  }, [apiUrl]);
+  }, []);
 
-  // 更新 TTS 管理器配置
+  // 更新 TTS 播放器配置
   useEffect(() => {
-    if (ttsManagerRef.current) {
-      ttsManagerRef.current.updateConfig(ttsConfig);
+    if (ttsPlayerRef.current) {
+      ttsPlayerRef.current.updateConfig(ttsConfig);
     }
   }, [ttsConfig]);
 
@@ -476,6 +476,9 @@ function App() {
           user_id: currentUserId,
           session_id: sessionId,
           attachments,
+          tts_enabled: ttsConfig.enabled,
+          tts_voice: ttsConfig.voice,
+          tts_model: ttsConfig.model,
         }),
         onmessage(ev) {
           try {
@@ -510,11 +513,27 @@ function App() {
                   blocks.push({ type: 'content', content: data });
                 }
                 updatedMsg.blocks = blocks;
-
-                // TTS: 将新内容发送给 TTS 管理器
-                if (ttsManagerRef.current && ttsConfig.enabled) {
-                  ttsManagerRef.current.addText(data);
+              } else if (ev.event === 'tts_segment_start') {
+                // TTS段落开始
+                if (ttsPlayerRef.current && ttsConfig.enabled) {
+                  ttsPlayerRef.current.startSegment(data.segment_id, data.text);
                 }
+              } else if (ev.event === 'tts_audio') {
+                // TTS音频数据
+                if (ttsPlayerRef.current && ttsConfig.enabled) {
+                  if (data.audio_chunk) {
+                    ttsPlayerRef.current.addAudioChunk(data.segment_id, data.audio_chunk);
+                  }
+                  if (data.is_final) {
+                    ttsPlayerRef.current.segmentComplete(data.segment_id);
+                  }
+                }
+              } else if (ev.event === 'tts_segment_end') {
+                // TTS段落结束（已在tts_audio的is_final中处理）
+                console.log(`[TTS] 段落 ${data.segment_id} 结束`);
+              } else if (ev.event === 'tts_error') {
+                // TTS错误（不影响文本显示）
+                console.error(`[TTS] 段落 ${data.segment_id} 合成失败:`, data.error);
               } else if (ev.event === 'tool_start') {
                 needsUpdate = true;
                 const toolCall: ToolCall = {
@@ -647,10 +666,7 @@ function App() {
         },
         onclose() {
           setIsLoading(false);
-          // TTS: 刷新缓冲区，播放剩余文本
-          if (ttsManagerRef.current && ttsConfig.enabled) {
-            ttsManagerRef.current.flush();
-          }
+          // TTS播放由后端控制，前端无需刷新缓冲区
         }
       });
     } catch (err) {

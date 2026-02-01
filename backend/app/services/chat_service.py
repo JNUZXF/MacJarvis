@@ -4,12 +4,15 @@ import base64
 from pathlib import Path
 from typing import Optional, AsyncIterator, List
 import structlog
+import asyncio
 
 from app.services.llm_service import LLMService
 from app.services.session_service import SessionService
 from app.services.file_service import FileService
 from app.services.conversation_history_service import ConversationHistoryService
 from app.services.memory_integration_service import MemoryIntegrationService
+from app.services.tts_service import TextSegmenter
+from app.api.v1.tts import synthesize_speech_stream
 from app.config import Settings
 from app.core.agent.orchestrator import AgentOrchestrator
 from app.core.tools.registry import ToolRegistry
@@ -17,6 +20,45 @@ from datetime import datetime
 import json
 
 logger = structlog.get_logger(__name__)
+
+from textwrap import dedent
+
+
+# ============================================================================
+# Base System Prompt - 基础系统提示词
+# ============================================================================
+
+BASE_SYSTEM_PROMPT = dedent("""
+    你是一个专业的 macOS 智能助手，可以帮助我管理系统、排查问题、执行自动化任务。
+    
+    ## 核心能力
+    - 系统监控：查看系统状态、进程信息、资源使用情况
+    - 文件管理：搜索、读取、创建、管理文件和目录
+    - 文本处理：使用grep搜索、正则匹配、日志分析
+    - 网络诊断：检查网络配置、端口状态、DNS设置
+    - 应用管理：启动应用、管理已安装程序
+    - 开发工具：Git操作、端口管理、文件对比
+    
+    ## 工具使用原则
+    1. **优先使用已注册工具**：你必须优先使用提供的工具来完成任务
+    2. **安全第一**：在执行具有潜在风险的操作（如删除文件、修改系统设置）前，请务必仔细确认路径和参数
+    3. **明确限制**：如果我请求存在安全风险或超出工具能力，直接说明限制并给出可行替代方案
+    4. **禁止危险操作**：绝不执行会清空系统目录、破坏安全设置或泄露敏感信息的操作
+    
+    ## 响应规范
+    - 使用中文回复我
+    - 提供清晰、准确的信息
+    - 在执行操作前说明将要做什么
+    - 操作完成后总结结果
+
+    # 工作原则
+    - 文件操作：你不清楚当前我的文件夹的具体名称和路径，在操作时需要先了解对应文件夹下的相应文件有哪些，再进行操作
+
+    # 你的回答风格
+    - 你需要用日常对话的形式来回答我的问题，不使用分点等书面语言，语气自然活泼
+""").strip()
+
+
 
 
 class ChatService:
@@ -63,7 +105,10 @@ class ChatService:
         message: str,
         model: Optional[str] = None,
         attachments: Optional[List[dict]] = None,
-        stream: bool = True
+        stream: bool = True,
+        tts_enabled: bool = False,
+        tts_voice: str = "longyingtao_v3",
+        tts_model: str = "cosyvoice-v3-flash"
     ) -> AsyncIterator[dict]:
         """
         Process a chat message with streaming response.
@@ -158,6 +203,18 @@ class ChatService:
             # Stream LLM response
             assistant_content = ""
             
+            # 初始化TTS分段器（如果启用）
+            segmenter = None
+            segment_id = 0
+            tts_tasks = []
+            
+            if tts_enabled:
+                segmenter = TextSegmenter(
+                    min_length=10,
+                    max_length=200,
+                    prefer_length=50
+                )
+            
             if stream:
                 # Get async generator directly from streaming method
                 response = self.llm._chat_completion_stream(
@@ -179,6 +236,21 @@ class ChatService:
                             "type": "content",
                             "content": content
                         }
+                        
+                        # TTS分段处理
+                        if segmenter:
+                            segments = segmenter.add_text(content)
+                            for segment_text in segments:
+                                current_segment_id = segment_id
+                                segment_id += 1
+                                
+                                # 记录需要合成的段落信息
+                                tts_tasks.append({
+                                    "segment_text": segment_text,
+                                    "segment_id": current_segment_id,
+                                    "tts_voice": tts_voice,
+                                    "tts_model": tts_model
+                                })
             else:
                 response = await self.llm.chat_completion(
                     messages=messages,
@@ -192,6 +264,28 @@ class ChatService:
                     "type": "content",
                     "content": assistant_content
                 }
+            
+            # 处理剩余的文本片段（刷新缓冲区）
+            if segmenter:
+                final_segment = segmenter.flush()
+                if final_segment:
+                    current_segment_id = segment_id
+                    segment_id += 1
+                    
+                    task = asyncio.create_task(
+                        self._synthesize_and_stream_segment(
+                            segment_text=final_segment,
+                            segment_id=current_segment_id,
+                            tts_voice=tts_voice,
+                            tts_model=tts_model
+                        )
+                    )
+                    tts_tasks.append(task)
+            
+            # 按顺序返回TTS音频事件
+            for task in tts_tasks:
+                async for tts_event in await task:
+                    yield tts_event
             
             # Save assistant message with timestamp
             assistant_msg_timestamp = datetime.utcnow()
@@ -379,10 +473,7 @@ class ChatService:
         Returns:
             System prompt string
         """
-        base_prompt = """你是一个专业的 macOS 智能助手，可以帮助用户管理系统、排查问题、执行自动化任务。
-你可以使用提供的工具来获取信息或执行操作。
-在执行具有潜在风险的操作（如删除文件、修改系统设置）前，请务必仔细确认路径和参数。
-请用中文回复用户。"""
+        base_prompt = BASE_SYSTEM_PROMPT
 
         prompt_parts = [base_prompt]
 
@@ -393,6 +484,86 @@ class ChatService:
             prompt_parts.append(f"\n\n附件内容:\n{attachment_context}")
 
         return "".join(prompt_parts)
+    
+    async def _synthesize_and_stream_segment(
+        self,
+        segment_text: str,
+        segment_id: int,
+        tts_voice: str,
+        tts_model: str
+    ) -> AsyncIterator[dict]:
+        """
+        合成单个文本段落并流式返回音频数据
+        
+        Args:
+            segment_text: 要合成的文本段落
+            segment_id: 段落ID
+            tts_voice: TTS音色
+            tts_model: TTS模型
+            
+        Yields:
+            TTS事件字典
+        """
+        try:
+            # 发送段落开始事件
+            yield {
+                "type": "tts_segment_start",
+                "segment_id": segment_id,
+                "text": segment_text
+            }
+            
+            # 流式合成音频
+            audio_chunks = []
+            async for audio_chunk in synthesize_speech_stream(
+                text=segment_text,
+                model=tts_model,
+                voice=tts_voice
+            ):
+                # 将音频数据编码为base64
+                audio_base64 = base64.b64encode(audio_chunk).decode('utf-8')
+                audio_chunks.append(audio_chunk)
+                
+                # 返回音频数据块
+                yield {
+                    "type": "tts_audio",
+                    "segment_id": segment_id,
+                    "audio_chunk": audio_base64,
+                    "is_final": False
+                }
+            
+            # 发送段落结束事件
+            yield {
+                "type": "tts_audio",
+                "segment_id": segment_id,
+                "audio_chunk": "",
+                "is_final": True
+            }
+            
+            yield {
+                "type": "tts_segment_end",
+                "segment_id": segment_id
+            }
+            
+            logger.info(
+                "tts_segment_synthesized",
+                segment_id=segment_id,
+                text_length=len(segment_text),
+                audio_chunks=len(audio_chunks)
+            )
+            
+        except Exception as e:
+            logger.error(
+                "tts_synthesis_failed",
+                segment_id=segment_id,
+                text=segment_text,
+                error=str(e)
+            )
+            # TTS失败不影响文本显示，只记录错误
+            yield {
+                "type": "tts_error",
+                "segment_id": segment_id,
+                "error": str(e)
+            }
     
     async def generate_session_summary(
         self,
@@ -452,7 +623,10 @@ class ChatService:
         message: str,
         tool_registry: ToolRegistry,
         model: Optional[str] = None,
-        attachments: Optional[List[dict]] = None
+        attachments: Optional[List[dict]] = None,
+        tts_enabled: bool = False,
+        tts_voice: str = "longyingtao_v3",
+        tts_model: str = "cosyvoice-v3-flash"
     ) -> AsyncIterator[dict]:
         """
         Process a chat message with tool execution support.
@@ -549,6 +723,18 @@ class ChatService:
             tool_calls = []
             tool_call_results = []
             tool_call_timestamp = None
+            
+            # 初始化TTS分段器（如果启用）
+            segmenter = None
+            segment_id = 0
+            tts_tasks = []
+            
+            if tts_enabled:
+                segmenter = TextSegmenter(
+                    min_length=10,
+                    max_length=200,
+                    prefer_length=50
+                )
 
             async for event in orchestrator.run_stream(
                 user_input=user_input,
@@ -563,6 +749,24 @@ class ChatService:
                         "type": "content",
                         "content": content
                     }
+                    
+                    # TTS分段处理
+                    if segmenter:
+                        segments = segmenter.add_text(content)
+                        for segment_text in segments:
+                            current_segment_id = segment_id
+                            segment_id += 1
+                            
+                            # 启动TTS合成任务（不阻塞）
+                            task = asyncio.create_task(
+                                self._synthesize_and_stream_segment(
+                                    segment_text=segment_text,
+                                    segment_id=current_segment_id,
+                                    tts_voice=tts_voice,
+                                    tts_model=tts_model
+                                )
+                            )
+                            tts_tasks.append(task)
 
                 elif event_type == "tool_start":
                     # Record tool call timestamp
@@ -595,6 +799,28 @@ class ChatService:
                         "tool_call_id": event.get("tool_call_id"),
                         "result": result
                     }
+            
+            # 处理剩余的文本片段（刷新缓冲区）
+            if segmenter:
+                final_segment = segmenter.flush()
+                if final_segment:
+                    current_segment_id = segment_id
+                    segment_id += 1
+                    
+                    task = asyncio.create_task(
+                        self._synthesize_and_stream_segment(
+                            segment_text=final_segment,
+                            segment_id=current_segment_id,
+                            tts_voice=tts_voice,
+                            tts_model=tts_model
+                        )
+                    )
+                    tts_tasks.append(task)
+            
+            # 按顺序返回TTS音频事件
+            for task in tts_tasks:
+                async for tts_event in await task:
+                    yield tts_event
 
             # Save assistant message with tool calls and results
             assistant_msg_timestamp = datetime.utcnow()

@@ -1,261 +1,181 @@
 /**
- * TTS Manager
- * 负责流式文本的智能分段、音频合成和播放队列管理
+ * TTS Player
+ * 负责接收后端推送的音频数据并进行无缝播放
+ * 分段逻辑已移至后端处理
  */
 
 import type { TTSConfig } from '../types';
 
-interface AudioQueueItem {
-  id: string;
+interface AudioSegment {
+  segmentId: number;
   text: string;
-  audioData?: ArrayBuffer;
-  status: 'pending' | 'loading' | 'ready' | 'playing' | 'completed' | 'failed';
+  audioChunks: ArrayBuffer[];
+  audioBuffer?: AudioBuffer;
+  status: 'receiving' | 'ready' | 'playing' | 'completed' | 'failed';
   error?: string;
 }
 
-export class TTSManager {
+export class TTSPlayer {
   private config: TTSConfig;
-  private apiUrl: string;
-  private textBuffer: string = '';
-  private audioQueue: AudioQueueItem[] = [];
-  private currentAudioIndex: number = 0;
+  private audioSegments: Map<number, AudioSegment> = new Map();
+  private segmentOrder: number[] = [];
+  private currentSegmentIndex: number = 0;
   private isPlaying: boolean = false;
   private audioContext: AudioContext | null = null;
   private currentSource: AudioBufferSourceNode | null = null;
-  private nextSegmentId: number = 0;
+  private nextSource: AudioBufferSourceNode | null = null;
 
-  // 句子结束标点
-  private static SENTENCE_ENDINGS = /[。！？；.!?;]/;
-  // 次要分隔符
-  private static SECONDARY_DELIMITERS = /[，、,]/;
-
-  constructor(config: TTSConfig, apiUrl: string) {
+  constructor(config: TTSConfig) {
     this.config = config;
-    this.apiUrl = apiUrl;
   }
 
   /**
-   * 添加文本片段并触发分段处理
+   * 开始新的音频段落
    */
-  addText(text: string): void {
+  startSegment(segmentId: number, text: string): void {
     if (!this.config.enabled) {
       return;
     }
 
-    this.textBuffer += text;
-    this.processBuffer();
-  }
-
-  /**
-   * 处理文本缓冲区，提取可发送的段落
-   */
-  private processBuffer(): void {
-    while (true) {
-      const segment = this.extractSegment();
-      if (!segment) {
-        break;
-      }
-      this.enqueueSegment(segment);
-    }
-  }
-
-  /**
-   * 从缓冲区提取一个段落
-   */
-  private extractSegment(): string | null {
-    if (!this.textBuffer) {
-      return null;
-    }
-
-    const bufferLength = this.textBuffer.length;
-
-    // 缓冲区过长，强制分段
-    if (bufferLength > this.config.maxSegmentLength) {
-      return this.forceSplit();
-    }
-
-    // 缓冲区过短，等待更多文本
-    if (bufferLength < this.config.minSegmentLength) {
-      return null;
-    }
-
-    // 查找自然分段点
-    return this.findNaturalBreak();
-  }
-
-  /**
-   * 查找自然的分段点（句子结束标点）
-   */
-  private findNaturalBreak(): string | null {
-    const matches = Array.from(this.textBuffer.matchAll(new RegExp(TTSManager.SENTENCE_ENDINGS, 'g')));
-
-    if (matches.length === 0) {
-      return null;
-    }
-
-    // 寻找最接近偏好长度的分段点
-    let bestMatch: RegExpMatchArray | null = null;
-    let bestDistance = Infinity;
-
-    for (const match of matches) {
-      const pos = (match.index ?? 0) + match[0].length;
-      const distance = Math.abs(pos - this.config.preferSegmentLength);
-
-      // 必须满足最小长度要求
-      if (pos >= this.config.minSegmentLength && distance < bestDistance) {
-        bestMatch = match;
-        bestDistance = distance;
-      }
-    }
-
-    if (bestMatch) {
-      const pos = (bestMatch.index ?? 0) + bestMatch[0].length;
-      const segment = this.textBuffer.slice(0, pos).trim();
-      this.textBuffer = this.textBuffer.slice(pos).trim();
-      return segment;
-    }
-
-    return null;
-  }
-
-  /**
-   * 强制分段（当缓冲区过长时）
-   */
-  private forceSplit(): string {
-    const maxPos = Math.min(this.textBuffer.length, this.config.maxSegmentLength);
-    const searchText = this.textBuffer.slice(0, maxPos);
-
-    // 尝试在次要分隔符处分段
-    const matches = Array.from(searchText.matchAll(new RegExp(TTSManager.SECONDARY_DELIMITERS, 'g')));
-
-    let pos: number;
-    if (matches.length > 0) {
-      // 取最后一个次要分隔符
-      const lastMatch = matches[matches.length - 1];
-      pos = (lastMatch.index ?? 0) + lastMatch[0].length;
-    } else {
-      // 没有次要分隔符，直接截断
-      pos = maxPos;
-    }
-
-    const segment = this.textBuffer.slice(0, pos).trim();
-    this.textBuffer = this.textBuffer.slice(pos).trim();
-    return segment;
-  }
-
-  /**
-   * 将段落加入队列并请求音频合成
-   */
-  private enqueueSegment(text: string): void {
-    const id = `segment-${this.nextSegmentId++}`;
-    const item: AudioQueueItem = {
-      id,
+    const segment: AudioSegment = {
+      segmentId,
       text,
-      status: 'pending',
+      audioChunks: [],
+      status: 'receiving',
     };
 
-    this.audioQueue.push(item);
-    this.synthesizeAudio(item);
+    this.audioSegments.set(segmentId, segment);
+    this.segmentOrder.push(segmentId);
 
-    // 如果没有正在播放，启动播放
-    if (!this.isPlaying) {
-      this.playNext();
-    }
+    console.log(`[TTS] 开始接收段落 ${segmentId}: ${text.slice(0, 30)}...`);
   }
 
   /**
-   * 合成音频
+   * 添加音频数据块
    */
-  private async synthesizeAudio(item: AudioQueueItem): Promise<void> {
-    item.status = 'loading';
+  addAudioChunk(segmentId: number, audioChunk: string): void {
+    if (!this.config.enabled) {
+      return;
+    }
 
+    const segment = this.audioSegments.get(segmentId);
+    if (!segment) {
+      console.warn(`[TTS] 未找到段落 ${segmentId}`);
+      return;
+    }
+
+    // 解码 base64 音频数据
     try {
-      const response = await fetch(`${this.apiUrl}/api/v1/tts/synthesize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: item.text,
-          model: this.config.model,
-          voice: this.config.voice,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`TTS API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      // 解码 base64 音频数据
-      const audioBase64 = data.audio;
-      const binaryString = atob(audioBase64);
+      const binaryString = atob(audioChunk);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
+      segment.audioChunks.push(bytes.buffer);
+    } catch (error) {
+      console.error(`[TTS] 解码音频数据失败:`, error);
+    }
+  }
 
-      item.audioData = bytes.buffer;
-      item.status = 'ready';
+  /**
+   * 标记段落完成
+   */
+  async segmentComplete(segmentId: number): Promise<void> {
+    if (!this.config.enabled) {
+      return;
+    }
 
-      // 如果这是下一个要播放的，立即播放
-      if (this.audioQueue[this.currentAudioIndex] === item && !this.isPlaying) {
+    const segment = this.audioSegments.get(segmentId);
+    if (!segment) {
+      console.warn(`[TTS] 未找到段落 ${segmentId}`);
+      return;
+    }
+
+    // 合并所有音频块
+    const totalLength = segment.audioChunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+    const mergedAudio = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of segment.audioChunks) {
+      mergedAudio.set(new Uint8Array(chunk), offset);
+      offset += chunk.byteLength;
+    }
+
+    // 解码为 AudioBuffer
+    try {
+      const audioBuffer = await this.decodePCM(mergedAudio.buffer, 22050, 1);
+      segment.audioBuffer = audioBuffer;
+      segment.status = 'ready';
+
+      console.log(`[TTS] 段落 ${segmentId} 准备完成，时长: ${audioBuffer.duration.toFixed(2)}s`);
+
+      // 如果这是下一个要播放的段落且当前没有播放，启动播放
+      if (this.segmentOrder[this.currentSegmentIndex] === segmentId && !this.isPlaying) {
         this.playNext();
       }
     } catch (error) {
-      console.error('TTS synthesis failed:', error);
-      item.status = 'failed';
-      item.error = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[TTS] 解码音频失败:`, error);
+      segment.status = 'failed';
+      segment.error = error instanceof Error ? error.message : 'Unknown error';
 
-      // 跳过失败的片段
-      if (this.audioQueue[this.currentAudioIndex] === item) {
+      // 跳过失败的段落
+      if (this.segmentOrder[this.currentSegmentIndex] === segmentId) {
+        this.currentSegmentIndex++;
         this.playNext();
       }
     }
   }
 
   /**
-   * 播放下一个音频片段
+   * 播放下一个音频段落
    */
   private async playNext(): Promise<void> {
-    if (this.currentAudioIndex >= this.audioQueue.length) {
+    if (this.currentSegmentIndex >= this.segmentOrder.length) {
       this.isPlaying = false;
+      console.log('[TTS] 所有段落播放完成');
       return;
     }
 
-    const item = this.audioQueue[this.currentAudioIndex];
+    const segmentId = this.segmentOrder[this.currentSegmentIndex];
+    const segment = this.audioSegments.get(segmentId);
 
-    // 等待音频数据准备好
-    if (item.status === 'pending' || item.status === 'loading') {
+    if (!segment) {
+      console.warn(`[TTS] 段落 ${segmentId} 不存在`);
+      this.currentSegmentIndex++;
+      this.playNext();
+      return;
+    }
+
+    // 等待音频准备好
+    if (segment.status === 'receiving') {
       // 等待一段时间后重试
       setTimeout(() => this.playNext(), 100);
       return;
     }
 
-    // 跳过失败的片段
-    if (item.status === 'failed') {
-      this.currentAudioIndex++;
+    // 跳过失败的段落
+    if (segment.status === 'failed') {
+      console.warn(`[TTS] 跳过失败的段落 ${segmentId}`);
+      this.currentSegmentIndex++;
       this.playNext();
       return;
     }
 
     // 播放音频
-    if (item.status === 'ready' && item.audioData) {
-      await this.playAudio(item);
+    if (segment.status === 'ready' && segment.audioBuffer) {
+      await this.playAudio(segment);
     }
   }
 
   /**
-   * 播放音频数据
+   * 播放音频数据（支持无缝衔接）
    */
-  private async playAudio(item: AudioQueueItem): Promise<void> {
-    if (!item.audioData) {
+  private async playAudio(segment: AudioSegment): Promise<void> {
+    if (!segment.audioBuffer) {
       return;
     }
 
     this.isPlaying = true;
-    item.status = 'playing';
+    segment.status = 'playing';
 
     try {
       // 初始化 AudioContext
@@ -268,32 +188,95 @@ export class TTSManager {
         await this.audioContext.resume();
       }
 
-      // 解码音频数据（PCM 16-bit 单声道 22050Hz）
-      const audioBuffer = await this.decodePCM(item.audioData, 22050, 1);
-
       // 创建音频源
       this.currentSource = this.audioContext.createBufferSource();
-      this.currentSource.buffer = audioBuffer;
+      this.currentSource.buffer = segment.audioBuffer;
       this.currentSource.connect(this.audioContext.destination);
+
+      // 计算播放结束时间
+      const currentTime = this.audioContext.currentTime;
+      const duration = segment.audioBuffer.duration;
+      const endTime = currentTime + duration;
+
+      // 预调度下一个段落（无缝衔接）
+      this.scheduleNextSegment(endTime);
 
       // 播放结束后播放下一个
       this.currentSource.onended = () => {
-        item.status = 'completed';
-        this.currentAudioIndex++;
+        segment.status = 'completed';
+        this.currentSegmentIndex++;
         this.isPlaying = false;
-        this.playNext();
+        
+        // 如果下一个段落没有被预调度（可能还未准备好），手动触发
+        if (!this.nextSource) {
+          this.playNext();
+        }
       };
 
-      this.currentSource.start();
+      this.currentSource.start(currentTime);
+
+      console.log(`[TTS] 播放段落 ${segment.segmentId}, 时长: ${duration.toFixed(2)}s, 结束时间: ${endTime.toFixed(2)}s`);
     } catch (error) {
-      console.error('Audio playback failed:', error);
-      item.status = 'failed';
-      item.error = error instanceof Error ? error.message : 'Unknown error';
-      this.currentAudioIndex++;
+      console.error('[TTS] 音频播放失败:', error);
+      segment.status = 'failed';
+      segment.error = error instanceof Error ? error.message : 'Unknown error';
+      this.currentSegmentIndex++;
       this.isPlaying = false;
       this.playNext();
     }
   }
+
+  /**
+   * 预调度下一个段落（实现无缝播放）
+   */
+  private scheduleNextSegment(startTime: number): void {
+    const nextIndex = this.currentSegmentIndex + 1;
+    if (nextIndex >= this.segmentOrder.length) {
+      return;
+    }
+
+    const nextSegmentId = this.segmentOrder[nextIndex];
+    const nextSegment = this.audioSegments.get(nextSegmentId);
+
+    if (!nextSegment || nextSegment.status !== 'ready' || !nextSegment.audioBuffer) {
+      console.log(`[TTS] 段落 ${nextSegmentId} 尚未准备好，无法预调度`);
+      return;
+    }
+
+    if (!this.audioContext) {
+      return;
+    }
+
+    try {
+      // 创建下一个音频源
+      this.nextSource = this.audioContext.createBufferSource();
+      this.nextSource.buffer = nextSegment.audioBuffer;
+      this.nextSource.connect(this.audioContext.destination);
+
+      // 精确调度：在当前音频结束时立即开始
+      this.nextSource.start(startTime);
+
+      nextSegment.status = 'playing';
+
+      // 播放结束后继续下一个
+      this.nextSource.onended = () => {
+        nextSegment.status = 'completed';
+        this.currentSegmentIndex++;
+        this.currentSource = this.nextSource;
+        this.nextSource = null;
+        this.isPlaying = false;
+        
+        // 继续播放后续段落
+        this.playNext();
+      };
+
+      console.log(`[TTS] 预调度段落 ${nextSegmentId}, 将在 ${startTime.toFixed(2)}s 开始播放`);
+    } catch (error) {
+      console.error('[TTS] 预调度失败:', error);
+      // 预调度失败不影响当前播放，会在当前结束后手动触发
+    }
+  }
+
 
   /**
    * 解码 PCM 音频数据
@@ -304,7 +287,7 @@ export class TTSManager {
     channels: number
   ): Promise<AudioBuffer> {
     if (!this.audioContext) {
-      throw new Error('AudioContext not initialized');
+      this.audioContext = new AudioContext();
     }
 
     // PCM 16-bit 数据
@@ -325,35 +308,38 @@ export class TTSManager {
   }
 
   /**
-   * 刷新缓冲区，处理剩余文本
-   */
-  flush(): void {
-    if (this.textBuffer.trim()) {
-      this.enqueueSegment(this.textBuffer.trim());
-      this.textBuffer = '';
-    }
-  }
-
-  /**
    * 停止播放
    */
   stop(): void {
     if (this.currentSource) {
-      this.currentSource.stop();
+      try {
+        this.currentSource.stop();
+      } catch (e) {
+        // 忽略已停止的错误
+      }
       this.currentSource = null;
     }
+    if (this.nextSource) {
+      try {
+        this.nextSource.stop();
+      } catch (e) {
+        // 忽略已停止的错误
+      }
+      this.nextSource = null;
+    }
     this.isPlaying = false;
+    console.log('[TTS] 停止播放');
   }
 
   /**
-   * 清空队列和缓冲区
+   * 清空所有数据
    */
   clear(): void {
     this.stop();
-    this.textBuffer = '';
-    this.audioQueue = [];
-    this.currentAudioIndex = 0;
-    this.nextSegmentId = 0;
+    this.audioSegments.clear();
+    this.segmentOrder = [];
+    this.currentSegmentIndex = 0;
+    console.log('[TTS] 清空所有数据');
   }
 
   /**
@@ -369,18 +355,18 @@ export class TTSManager {
   }
 
   /**
-   * 获取队列状态
+   * 获取播放状态
    */
   getStatus() {
     return {
-      bufferLength: this.textBuffer.length,
-      queueLength: this.audioQueue.length,
-      currentIndex: this.currentAudioIndex,
+      segmentCount: this.audioSegments.size,
+      currentIndex: this.currentSegmentIndex,
       isPlaying: this.isPlaying,
-      queue: this.audioQueue.map(item => ({
-        id: item.id,
-        text: item.text.slice(0, 50) + (item.text.length > 50 ? '...' : ''),
-        status: item.status,
+      segments: Array.from(this.audioSegments.values()).map(seg => ({
+        segmentId: seg.segmentId,
+        text: seg.text.slice(0, 50) + (seg.text.length > 50 ? '...' : ''),
+        status: seg.status,
+        chunksReceived: seg.audioChunks.length,
       })),
     };
   }

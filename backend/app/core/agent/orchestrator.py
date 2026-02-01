@@ -40,7 +40,7 @@ class AgentOrchestrator:
         self.client = client
         self.registry = registry
         self.settings = settings
-        self.system_prompt = system_prompt or self._default_system_prompt()
+        self.system_prompt = system_prompt
     
     def _default_system_prompt(self) -> str:
         """Get default system prompt"""
