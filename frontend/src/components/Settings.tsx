@@ -27,6 +27,8 @@ interface SettingsProps {
   ttsConfig: TTSConfig;
   onTTSConfigChange: (config: Partial<TTSConfig>) => void;
   apiUrl: string;
+  userId: string;
+  onClearAllSessions: () => void;
 }
 
 export const Settings: React.FC<SettingsProps> = ({
@@ -47,8 +49,11 @@ export const Settings: React.FC<SettingsProps> = ({
   ttsConfig,
   onTTSConfigChange,
   apiUrl,
+  userId,
+  onClearAllSessions,
 }) => {
   const [pathInput, setPathInput] = useState('');
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   if (!isOpen) return null;
 
@@ -256,6 +261,77 @@ export const Settings: React.FC<SettingsProps> = ({
               apiUrl={apiUrl}
               onConfigChange={onTTSConfigChange}
             />
+          </div>
+
+          {/* 数据管理 */}
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>
+              <span className={styles.sectionTitleIndicator}></span>
+              数据管理
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className={styles.label}>用户标识</label>
+                <div className={styles.input} style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}>
+                  {userId ? `${userId.substring(0, 16)}...` : '未初始化'}
+                </div>
+                <p className="text-xs text-[#a08b73] mt-2">
+                  💡 基于机器硬件生成的唯一标识，确保聊天记录绑定到本机
+                </p>
+              </div>
+
+              <div>
+                <label className={styles.label}>清除所有聊天记录</label>
+                {!showClearConfirm ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowClearConfirm(true)}
+                    className={clsx(styles.button, "w-full")}
+                    style={{ 
+                      backgroundColor: '#dc2626',
+                      color: 'white',
+                      borderColor: '#dc2626'
+                    }}
+                  >
+                    清除所有聊天记录
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <div className={styles.errorMessage}>
+                      ⚠️ 此操作将删除所有会话和消息，不可恢复！
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClearAllSessions();
+                          setShowClearConfirm(false);
+                        }}
+                        className={clsx(styles.button, "flex-1")}
+                        style={{ 
+                          backgroundColor: '#dc2626',
+                          color: 'white',
+                          borderColor: '#dc2626'
+                        }}
+                      >
+                        确认清除
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowClearConfirm(false)}
+                        className={clsx(styles.button, styles.buttonSecondary, "flex-1")}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <p className={clsx(styles.infoBox, styles.infoBoxBlue)}>
+                🗑️ <strong>数据清除：</strong>清除所有聊天记录后，系统将自动创建新的会话。用户标识不会改变，路径配置和代理设置也会保留。
+              </p>
+            </div>
           </div>
         </div>
 

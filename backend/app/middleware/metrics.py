@@ -1,9 +1,6 @@
 # File: backend/app/middleware/metrics.py
 # Purpose: Metrics collection middleware for monitoring and observability
 import time
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
 from typing import Dict, Optional
 import structlog
 from collections import defaultdict
@@ -110,76 +107,85 @@ def get_metrics_collector() -> MetricsCollector:
     return _metrics_collector
 
 
-class MetricsMiddleware(BaseHTTPMiddleware):
+class MetricsMiddleware:
     """
-    Middleware to collect HTTP request metrics.
-    Records request count, duration, status codes, and error rates.
+    ASGI middleware to collect HTTP request metrics.
+    对 StreamingResponse 也能正确统计（以最后一个 http.response.body 为结束信号）。
     """
-    
+
     def __init__(self, app, collector: Optional[MetricsCollector] = None):
-        super().__init__(app)
+        self.app = app
         self.collector = collector or get_metrics_collector()
-    
-    async def dispatch(self, request: Request, call_next) -> Response:
-        # Skip metrics endpoint itself to avoid recursion
-        if request.url.path == "/metrics":
-            return await call_next(request)
-        
-        start_time = time.time()
-        
-        try:
-            response = await call_next(request)
-            
-            # Calculate duration
-            duration_ms = (time.time() - start_time) * 1000
-            
-            # Record metrics
-            self.collector.record_request(
-                method=request.method,
-                path=self._normalize_path(request.url.path),
-                status_code=response.status_code,
-                duration_ms=duration_ms
-            )
-            
-            # Log slow requests
-            if duration_ms > 1000:  # Slower than 1 second
-                logger.warning(
-                    "slow_request",
-                    method=request.method,
-                    path=request.url.path,
-                    duration_ms=round(duration_ms, 2),
-                    status_code=response.status_code
-                )
-            
-            return response
-            
-        except Exception as e:
-            # Record error
-            duration_ms = (time.time() - start_time) * 1000
-            self.collector.record_request(
-                method=request.method,
-                path=self._normalize_path(request.url.path),
-                status_code=500,
-                duration_ms=duration_ms
-            )
-            raise
-    
-    def _normalize_path(self, path: str) -> str:
+
+    @staticmethod
+    def _normalize_path(path: str) -> str:
         """
         Normalize path for metrics grouping.
         Replaces UUIDs and IDs with placeholders.
         """
         import re
-        
+
         # Replace UUIDs
         path = re.sub(
-            r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
-            '{uuid}',
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            "{uuid}",
             path,
-            flags=re.IGNORECASE
+            flags=re.IGNORECASE,
         )
-        
+
         # Replace numeric IDs
-        path = re.sub(r'/\d+/', '/{id}/', path)
-        
+        path = re.sub(r"/\d+/", "/{id}/", path)
+
         return path
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path") or ""
+        if path == "/metrics":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method") or ""
+        start_time = time.time()
+        status_code_holder = {"status_code": 500}
+        finished = {"done": False}
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                status_code_holder["status_code"] = int(message.get("status") or 500)
+
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                if not finished["done"]:
+                    duration_ms = (time.time() - start_time) * 1000
+                    self.collector.record_request(
+                        method=method,
+                        path=self._normalize_path(path),
+                        status_code=status_code_holder["status_code"],
+                        duration_ms=duration_ms,
+                    )
+                    if duration_ms > 1000:
+                        logger.warning(
+                            "slow_request",
+                            method=method,
+                            path=path,
+                            duration_ms=round(duration_ms, 2),
+                            status_code=status_code_holder["status_code"],
+                        )
+                    finished["done"] = True
+
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except Exception:
+            duration_ms = (time.time() - start_time) * 1000
+            self.collector.record_request(
+                method=method,
+                path=self._normalize_path(path),
+                status_code=500,
+                duration_ms=duration_ms,
+            )
+            raise

@@ -234,6 +234,10 @@ class SessionService:
         
         # Update in database
         success = await self.session_repo.update_title(session_id, title)
+        # 关键：对 SSE/长连接接口，不要把 DB 写事务拖到请求结束再提交，
+        # 否则会持有行锁，导致同一个 session_id 的下一次请求阻塞（表现为只收到 ping）。
+        if success:
+            await self.db.commit()
         
         if success:
             # Invalidate cache
@@ -321,6 +325,8 @@ class SessionService:
             tool_call_results=tool_call_results,
             metadata=metadata
         )
+        # 同上：尽早提交，避免长时间持有事务/锁
+        await self.db.commit()
 
         return {
             "id": message.id,
@@ -407,3 +413,46 @@ class SessionService:
         if not trimmed:
             return "新会话"
         return trimmed[:24] + "..." if len(trimmed) > 24 else trimmed
+    
+    async def clear_all_sessions(self, user_id: str) -> int:
+        """
+        清除用户的所有会话和消息
+        
+        此操作将删除用户的所有会话数据，不可恢复。
+        
+        Args:
+            user_id: User ID
+        
+        Returns:
+            删除的会话数量
+        """
+        # 获取所有会话
+        sessions = await self.session_repo.list_by_user(
+            user_id=user_id,
+            limit=1000,  # 足够大的数量
+            offset=0
+        )
+        
+        deleted_count = 0
+        
+        # 逐个删除会话（级联删除消息）
+        for session in sessions:
+            success = await self.session_repo.delete(session.id)
+            if success:
+                deleted_count += 1
+                
+                # 清除缓存
+                await self.cache.delete(
+                    self.cache.session_cache_key(user_id, session.id)
+                )
+        
+        # 清除用户相关的所有缓存
+        await self.cache.invalidate_user_sessions(user_id)
+        
+        logger.info(
+            "all_sessions_cleared",
+            user_id=user_id,
+            deleted_count=deleted_count
+        )
+        
+        return deleted_count

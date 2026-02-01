@@ -1076,6 +1076,44 @@ docker compose -f docker-compose.yml up -d --build
 
 ## 📝 更新日志
 
+### v1.2.0 (2025-02-01)
+
+#### ✨ 新功能 - 聊天记录持久化
+
+- **机器硬件绑定**：基于MAC地址、机器序列号等硬件特征生成唯一用户ID
+  - 自动生成64位SHA256哈希作为用户标识
+  - 支持macOS、Linux、Windows跨平台
+  - 本地缓存机制（`~/.mac_agent/machine_id`）
+  
+- **数据持久化保证**：
+  - 数据库自动存储在用户主目录固定路径（`~/.mac_agent/data/app.db`）
+  - 未配置PostgreSQL时自动降级到SQLite
+  - 重启系统或更换浏览器后聊天记录不丢失
+  
+- **一键清除功能**：
+  - 新增 `DELETE /api/v1/sessions/clear` API端点
+  - 前端设置页面提供清除按钮（带二次确认）
+  - 清除后自动创建新会话，用户标识和配置保留
+
+#### 🔧 技术改进
+
+- 新增 `app/core/machine_id.py` 机器ID生成模块
+- 更新 `app/config.py` 支持自动数据库路径配置
+- 更新 `app/api/v1/sessions.py` 支持机器ID和清除功能
+- 前端 `Settings.tsx` 新增数据管理面板
+
+#### 📚 文档更新
+
+- 新增[聊天记录持久化方案文档](docs/features/20250201_persistent_chat_history.md)
+- 更新 `.env.example` 配置说明
+
+#### 🧪 测试覆盖
+
+- 新增7个机器ID相关测试用例
+- 测试覆盖：ID生成、一致性、缓存机制、权限验证
+
+---
+
 ### v1.1.0 (2026-01-29)
 
 #### ✨ 新功能 - 文本处理与文件操作增强

@@ -125,11 +125,32 @@ class ChatService:
             Event dictionaries (content, tool_start, tool_result, error)
         """
         try:
+            logger.info(
+                "chat_process_enter",
+                user_id=user_id,
+                session_id=session_id,
+                message_length=len(message),
+                stream=stream,
+                tts_enabled=tts_enabled,
+            )
+
             # Get or create session
+            logger.info(
+                "chat_load_session_start",
+                user_id=user_id,
+                session_id=session_id,
+            )
             session = await self.sessions.get_session(
                 user_id=user_id,
                 session_id=session_id,
                 load_messages=True
+            )
+            logger.info(
+                "chat_load_session_done",
+                user_id=user_id,
+                session_id=session_id,
+                found=bool(session),
+                loaded_message_count=len(session.get("messages", [])) if session else 0,
             )
             
             if not session:
@@ -141,20 +162,40 @@ class ChatService:
             
             # Update session title if it's a new session
             if session.get("title") == "新会话" and not session.get("messages"):
+                logger.info(
+                    "chat_update_session_title_start",
+                    user_id=user_id,
+                    session_id=session_id,
+                )
                 title = self.sessions.create_session_title(message)
                 await self.sessions.update_session_title(
                     user_id=user_id,
                     session_id=session_id,
                     title=title
                 )
+                logger.info(
+                    "chat_update_session_title_done",
+                    user_id=user_id,
+                    session_id=session_id,
+                )
             
             # Add user message to session with timestamp
             user_msg_timestamp = datetime.utcnow()
+            logger.info(
+                "chat_add_user_message_start",
+                user_id=user_id,
+                session_id=session_id,
+            )
             await self.sessions.add_message(
                 session_id=session_id,
                 role="user",
                 content=message,
                 metadata={"timestamp": user_msg_timestamp.isoformat()}
+            )
+            logger.info(
+                "chat_add_user_message_done",
+                user_id=user_id,
+                session_id=session_id,
             )
             
             # Process attachments

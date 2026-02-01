@@ -2,15 +2,12 @@
 # Purpose: Request ID middleware for distributed tracing and log correlation
 import uuid
 import time
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
 import structlog
 
 logger = structlog.get_logger(__name__)
 
 
-class RequestIDMiddleware(BaseHTTPMiddleware):
+class RequestIDMiddleware:
     """
     Middleware to add unique request ID to each HTTP request.
     The request ID is:
@@ -19,90 +16,103 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     - Bound to logging context for correlation
     - Available in request.state for use in handlers
     """
-    
-    async def dispatch(self, request: Request, call_next) -> Response:
-        # Generate unique request ID
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        # 关键点：SSE/StreamingResponse 不要用 BaseHTTPMiddleware（会导致流式阻塞/缓冲）。
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         request_id = str(uuid.uuid4())
-        request.state.request_id = request_id
-        
-        # Bind request_id to logging context
-        # This makes it available in all logs during this request
+        method = scope.get("method")
+        path = scope.get("path")
+
+        # FastAPI 的 request.state 基于 scope["state"]
+        scope.setdefault("state", {})
+        scope["state"]["request_id"] = request_id
+
         structlog.contextvars.bind_contextvars(
             request_id=request_id,
-            method=request.method,
-            path=request.url.path,
+            method=method,
+            path=path,
         )
-        
-        # Record start time
+
         start_time = time.time()
-        
+        status_code_holder = {"status_code": None}
+        logged = {"done": False}
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                status_code_holder["status_code"] = message.get("status")
+                headers = list(message.get("headers") or [])
+                headers.append((b"x-request-id", request_id.encode("utf-8")))
+                message["headers"] = headers
+
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                # 最后一帧 body（对 StreamingResponse 也成立）
+                if not logged["done"]:
+                    duration_ms = (time.time() - start_time) * 1000
+                    logger.info(
+                        "http_request_completed",
+                        status_code=status_code_holder["status_code"],
+                        duration_ms=round(duration_ms, 2),
+                    )
+                    logged["done"] = True
+                    structlog.contextvars.clear_contextvars()
+
+            await send(message)
+
         try:
-            # Process request
-            response = await call_next(request)
-            
-            # Calculate duration
-            duration_ms = (time.time() - start_time) * 1000
-            
-            # Log request completion
-            logger.info(
-                "http_request_completed",
-                status_code=response.status_code,
-                duration_ms=round(duration_ms, 2),
-            )
-            
-            # Add request ID to response headers
-            response.headers["X-Request-ID"] = request_id
-            
-            return response
-            
+            await self.app(scope, receive, send_wrapper)
         except Exception as e:
-            # Log error with request context
             duration_ms = (time.time() - start_time) * 1000
             logger.error(
                 "http_request_failed",
                 error=str(e),
                 error_type=type(e).__name__,
                 duration_ms=round(duration_ms, 2),
-                exc_info=True
+                exc_info=True,
             )
-            raise
-            
-        finally:
-            # Clear logging context
             structlog.contextvars.clear_contextvars()
+            raise
+        finally:
+            # 兜底：如果没走到最后一帧 body（例如异常/中断），确保清理上下文
+            if not logged["done"]:
+                structlog.contextvars.clear_contextvars()
 
 
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
+class RequestLoggingMiddleware:
     """
     Middleware for detailed HTTP request/response logging.
     Logs request details, response status, and timing information.
     """
     
     def __init__(self, app, log_request_body: bool = False, log_response_body: bool = False):
-        super().__init__(app)
+        self.app = app
         self.log_request_body = log_request_body
         self.log_response_body = log_response_body
-    
-    async def dispatch(self, request: Request, call_next) -> Response:
-        # Log incoming request
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method")
+        path = scope.get("path")
+        query_string = scope.get("query_string") or b""
+        headers = {k.decode("latin1"): v.decode("latin1") for k, v in (scope.get("headers") or [])}
+
         logger.info(
             "http_request_started",
-            method=request.method,
-            path=request.url.path,
-            query_params=dict(request.query_params),
-            client_host=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent"),
+            method=method,
+            path=path,
+            query_string=query_string.decode("utf-8", errors="ignore"),
+            client_host=(scope.get("client") or [None])[0],
+            user_agent=headers.get("user-agent"),
         )
-        
-        # Optionally log request body (be careful with sensitive data!)
-        if self.log_request_body and request.method in ["POST", "PUT", "PATCH"]:
-            try:
-                body = await request.body()
-                logger.debug("http_request_body", body_size=len(body))
-            except Exception:
-                pass
-        
-        # Process request
-        response = await call_next(request)
-        
-        return response
+
+        # 为了不影响 SSE/大 body，这里不读取 request body
+        await self.app(scope, receive, send)

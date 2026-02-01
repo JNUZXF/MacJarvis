@@ -49,14 +49,33 @@ async def chat_endpoint(
         try:
             # Send initial ping to establish connection
             yield ": ping\n\n"
+            logger.info(
+                "chat_sse_ping_sent",
+                user_id=request.user_id,
+                session_id=request.session_id,
+            )
             
             # Get user's allowed paths
+            logger.info(
+                "chat_allowed_roots_loading",
+                user_id=request.user_id,
+            )
             user_paths = await user_service.get_effective_allowed_roots(request.user_id)
+            logger.info(
+                "chat_allowed_roots_loaded",
+                user_id=request.user_id,
+                path_count=len(user_paths),
+            )
             
             # Set runtime allowed roots for this request
             token = set_runtime_allowed_roots(user_paths)
             
             # Process chat message
+            logger.info(
+                "chat_service_stream_starting",
+                user_id=request.user_id,
+                session_id=request.session_id,
+            )
             async for event in chat_service.process_chat_message(
                 user_id=request.user_id,
                 session_id=request.session_id,

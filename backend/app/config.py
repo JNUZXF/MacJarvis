@@ -3,6 +3,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from typing import Literal
+from pathlib import Path
 import json
 
 
@@ -60,13 +61,32 @@ class Settings(BaseSettings):
     # 格式: postgresql+asyncpg://user:password@host:port/database
     # 示例: postgresql+asyncpg://postgres:password@localhost:5433/mac_agent
     # 注意: 默认使用端口 5433 以避免与 Cursor 编辑器或其他服务冲突
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/mac_agent"
+    # 如果未配置DATABASE_URL，将自动使用用户主目录下的SQLite数据库
+    DATABASE_URL: str = ""
     DB_POOL_SIZE: int = 20
     DB_MAX_OVERFLOW: int = 10
     DB_ECHO: bool = False
     # SQLite 配置（仅用于开发环境，生产环境不推荐）
     # SQLite 并发写入时容易出现 "database is locked"
     SQLITE_BUSY_TIMEOUT_MS: int = 30000
+    
+    @property
+    def effective_database_url(self) -> str:
+        """
+        获取有效的数据库URL
+        
+        如果未配置DATABASE_URL，则使用用户主目录下的SQLite数据库
+        路径：~/.mac_agent/data/app.db
+        """
+        if self.DATABASE_URL:
+            return self.DATABASE_URL
+        
+        # 使用用户主目录下的固定路径
+        data_dir = Path.home() / ".mac_agent" / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        
+        db_path = data_dir / "app.db"
+        return f"sqlite+aiosqlite:///{db_path}"
     
     # Redis Configuration
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -76,10 +96,29 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
     
+    # Data Storage Configuration
+    # 数据存储根目录（默认在用户主目录下，确保重启后数据不丢失）
+    DATA_ROOT: str = str(Path.home() / ".mac_agent" / "data")
+    
     # File Upload Configuration
-    UPLOAD_DIR: str = "./backend_data/uploads"
+    UPLOAD_DIR: str = ""
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
     ATTACHMENT_TEXT_LIMIT: int = 10000
+    
+    @property
+    def effective_upload_dir(self) -> Path:
+        """
+        获取有效的上传目录
+        
+        如果未配置UPLOAD_DIR，则使用用户主目录下的固定路径
+        路径：~/.mac_agent/uploads
+        """
+        if self.UPLOAD_DIR:
+            return Path(self.UPLOAD_DIR)
+        
+        upload_dir = Path.home() / ".mac_agent" / "uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        return upload_dir
     
     # Memory System Configuration
     MEMORY_WINDOW_SIZE: int = 10

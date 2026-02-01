@@ -1056,6 +1056,32 @@ function App() {
         ttsConfig={ttsConfig}
         onTTSConfigChange={handleTTSConfigChange}
         apiUrl={apiUrl}
+        userId={userId}
+        onClearAllSessions={async () => {
+          if (!userId) return;
+          try {
+            const response = await fetch(
+              `${apiUrl}/api/v1/sessions/clear?user_id=${encodeURIComponent(userId)}`,
+              { method: 'DELETE' }
+            );
+            if (!response.ok) {
+              throw new Error(`Clear sessions failed: ${response.status}`);
+            }
+            const data = await response.json();
+            console.log('Sessions cleared:', data);
+            
+            // 重新初始化会话状态
+            await initSessionState();
+            
+            // 关闭设置页面
+            setIsSettingsOpen(false);
+            
+            alert(`成功清除 ${data.deleted_count} 个会话的所有聊天记录`);
+          } catch (err) {
+            console.error('Failed to clear sessions:', err);
+            alert('清除聊天记录失败，请稍后重试');
+          }
+        }}
       />
     </div>
   );

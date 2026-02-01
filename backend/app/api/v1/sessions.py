@@ -14,6 +14,7 @@ from app.api.schemas.session import (
 from app.services.session_service import SessionService
 from app.services.user_service import UserService
 from app.dependencies import get_session_service, get_user_service
+from app.core.machine_id import get_machine_id
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -28,9 +29,12 @@ async def init_session(
     """
     Initialize session for a user.
     Creates user if doesn't exist, returns active session or creates new one.
+    
+    如果未提供user_id，将自动使用机器硬件ID作为用户标识，
+    确保同一台机器的数据持久化。
     """
-    # Get or create user
-    user_id = request.user_id or str(__import__('uuid').uuid4())
+    # 使用机器ID作为用户标识（如果未提供user_id）
+    user_id = request.user_id or get_machine_id()
     user = await user_service.get_or_create_user(user_id)
     
     # Get sessions
@@ -157,3 +161,30 @@ async def update_session_title(
         raise HTTPException(status_code=404, detail="Session not found")
     
     return {"status": "updated", "session_id": session_id, "title": title}
+
+
+@router.delete("/sessions/clear")
+async def clear_all_sessions(
+    user_id: str = Query(..., description="User ID"),
+    session_service: SessionService = Depends(get_session_service)
+):
+    """
+    清除用户的所有聊天记录
+    
+    此操作将删除用户的所有会话和消息，不可恢复。
+    建议在前端添加二次确认提示。
+    """
+    deleted_count = await session_service.clear_all_sessions(user_id)
+    
+    logger.info(
+        "all_sessions_cleared",
+        user_id=user_id,
+        deleted_count=deleted_count
+    )
+    
+    return {
+        "status": "cleared",
+        "user_id": user_id,
+        "deleted_count": deleted_count,
+        "message": f"已清除 {deleted_count} 个会话的所有聊天记录"
+    }

@@ -30,8 +30,11 @@ def get_engine(settings: Settings):
     if _engine is not None:
         return _engine
     
+    # 使用有效的数据库URL（支持自动降级到用户主目录的SQLite）
+    database_url = settings.effective_database_url
+    
     # Determine pool class based on database URL
-    if settings.DATABASE_URL.startswith("sqlite"):
+    if database_url.startswith("sqlite"):
         # SQLite doesn't support connection pooling
         pool_class = NullPool
         pool_kwargs = {}
@@ -56,7 +59,7 @@ def get_engine(settings: Settings):
     # Create async engine with appropriate pool configuration
     if pool_class is not None:
         _engine = create_async_engine(
-            settings.DATABASE_URL,
+            database_url,
             echo=settings.DB_ECHO,
             poolclass=pool_class,
             connect_args=connect_args,
@@ -65,14 +68,14 @@ def get_engine(settings: Settings):
     else:
         # For PostgreSQL, let SQLAlchemy use default async pool
         _engine = create_async_engine(
-            settings.DATABASE_URL,
+            database_url,
             echo=settings.DB_ECHO,
             connect_args=connect_args,
             **pool_kwargs
         )
 
     # SQLite 连接级 PRAGMA：减少读写互斥、提升并发友好度，并设置 busy_timeout
-    if settings.DATABASE_URL.startswith("sqlite"):
+    if database_url.startswith("sqlite"):
         from sqlalchemy import event
 
         @event.listens_for(_engine.sync_engine, "connect")
@@ -88,7 +91,7 @@ def get_engine(settings: Settings):
     
     logger.info(
         "database_engine_created",
-        database_url=settings.DATABASE_URL.split("://")[0] + "://***",  # Hide credentials
+        database_url=database_url.split("://")[0] + "://***",  # Hide credentials
         pool_size=pool_kwargs.get("pool_size"),
         max_overflow=pool_kwargs.get("max_overflow"),
     )
