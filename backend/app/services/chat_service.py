@@ -272,19 +272,21 @@ class ChatService:
                     current_segment_id = segment_id
                     segment_id += 1
                     
-                    task = asyncio.create_task(
-                        self._synthesize_and_stream_segment(
-                            segment_text=final_segment,
-                            segment_id=current_segment_id,
-                            tts_voice=tts_voice,
-                            tts_model=tts_model
-                        )
-                    )
-                    tts_tasks.append(task)
+                    tts_tasks.append({
+                        "segment_text": final_segment,
+                        "segment_id": current_segment_id,
+                        "tts_voice": tts_voice,
+                        "tts_model": tts_model
+                    })
             
-            # 按顺序返回TTS音频事件
-            for task in tts_tasks:
-                async for tts_event in await task:
+            # 按顺序合成并返回TTS音频事件
+            for task_info in tts_tasks:
+                async for tts_event in self._synthesize_and_stream_segment(
+                    segment_text=task_info["segment_text"],
+                    segment_id=task_info["segment_id"],
+                    tts_voice=task_info["tts_voice"],
+                    tts_model=task_info["tts_model"]
+                ):
                     yield tts_event
             
             # Save assistant message with timestamp
@@ -757,16 +759,13 @@ class ChatService:
                             current_segment_id = segment_id
                             segment_id += 1
                             
-                            # 启动TTS合成任务（不阻塞）
-                            task = asyncio.create_task(
-                                self._synthesize_and_stream_segment(
-                                    segment_text=segment_text,
-                                    segment_id=current_segment_id,
-                                    tts_voice=tts_voice,
-                                    tts_model=tts_model
-                                )
-                            )
-                            tts_tasks.append(task)
+                            # 记录需要合成的段落信息
+                            tts_tasks.append({
+                                "segment_text": segment_text,
+                                "segment_id": current_segment_id,
+                                "tts_voice": tts_voice,
+                                "tts_model": tts_model
+                            })
 
                 elif event_type == "tool_start":
                     # Record tool call timestamp
@@ -807,19 +806,21 @@ class ChatService:
                     current_segment_id = segment_id
                     segment_id += 1
                     
-                    task = asyncio.create_task(
-                        self._synthesize_and_stream_segment(
-                            segment_text=final_segment,
-                            segment_id=current_segment_id,
-                            tts_voice=tts_voice,
-                            tts_model=tts_model
-                        )
-                    )
-                    tts_tasks.append(task)
+                    tts_tasks.append({
+                        "segment_text": final_segment,
+                        "segment_id": current_segment_id,
+                        "tts_voice": tts_voice,
+                        "tts_model": tts_model
+                    })
             
-            # 按顺序返回TTS音频事件
-            for task in tts_tasks:
-                async for tts_event in await task:
+            # 按顺序合成并返回TTS音频事件
+            for task_info in tts_tasks:
+                async for tts_event in self._synthesize_and_stream_segment(
+                    segment_text=task_info["segment_text"],
+                    segment_id=task_info["segment_id"],
+                    tts_voice=task_info["tts_voice"],
+                    tts_model=task_info["tts_model"]
+                ):
                     yield tts_event
 
             # Save assistant message with tool calls and results

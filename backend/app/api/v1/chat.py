@@ -45,16 +45,17 @@ async def chat_endpoint(
     
     async def event_generator() -> AsyncIterator[str]:
         """Generate SSE events"""
-        # Send initial ping to establish connection
-        yield ": ping\n\n"
-        
-        # Get user's allowed paths
-        user_paths = await user_service.get_effective_allowed_roots(request.user_id)
-        
-        # Set runtime allowed roots for this request
-        token = set_runtime_allowed_roots(user_paths)
-        
+        token = None
         try:
+            # Send initial ping to establish connection
+            yield ": ping\n\n"
+            
+            # Get user's allowed paths
+            user_paths = await user_service.get_effective_allowed_roots(request.user_id)
+            
+            # Set runtime allowed roots for this request
+            token = set_runtime_allowed_roots(user_paths)
+            
             # Process chat message
             async for event in chat_service.process_chat_message(
                 user_id=request.user_id,
@@ -125,17 +126,20 @@ async def chat_endpoint(
                 "chat_stream_error",
                 user_id=request.user_id,
                 session_id=request.session_id,
-                error=str(e)
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True
             )
             yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
         
         finally:
             # Reset runtime allowed roots
-            try:
-                reset_runtime_allowed_roots(token)
-            except ValueError:
-                # Context var reset failed (can happen in tests)
-                pass
+            if token is not None:
+                try:
+                    reset_runtime_allowed_roots(token)
+                except ValueError:
+                    # Context var reset failed (can happen in tests)
+                    pass
     
     return add_sse_headers(
         StreamingResponse(

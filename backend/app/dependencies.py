@@ -5,6 +5,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
 import structlog
+import asyncio
 
 from app.config import Settings, get_settings
 from app.infrastructure.database.connection import get_db_session
@@ -99,11 +100,18 @@ async def get_cache_manager(
 # LLM Dependencies
 # ============================================================================
 
-def get_llm_client(
+# Global LLM client instance (singleton pattern to avoid resource leaks)
+_llm_client_instance: Optional[OpenAIClient] = None
+_llm_client_lock = asyncio.Lock()
+
+async def get_llm_client(
     settings: Settings = Depends(get_app_settings)
 ) -> OpenAIClient:
     """
-    Get LLM client instance.
+    Get LLM client instance (singleton).
+    
+    IMPORTANT: Uses singleton pattern to avoid creating multiple httpx.AsyncClient
+    instances, which can cause connection pool exhaustion and streaming failures.
     
     Args:
         settings: Application settings
@@ -111,17 +119,25 @@ def get_llm_client(
     Returns:
         OpenAI-compatible client
     """
-    llm_config = settings.effective_llm_config
+    global _llm_client_instance
     
-    return OpenAIClient(
-        api_key=llm_config["api_key"],
-        base_url=llm_config["base_url"],
-        timeout=llm_config["timeout_s"]
-    )
+    # Double-checked locking pattern for thread-safe singleton
+    if _llm_client_instance is None:
+        async with _llm_client_lock:
+            if _llm_client_instance is None:
+                llm_config = settings.effective_llm_config
+                _llm_client_instance = OpenAIClient(
+                    api_key=llm_config["api_key"],
+                    base_url=llm_config["base_url"],
+                    timeout=llm_config["timeout_s"]
+                )
+                logger.info("llm_client_singleton_created")
+    
+    return _llm_client_instance
 
 
 async def get_llm_service(
-    client: OpenAIClient = Depends(get_llm_client),
+    client: OpenAIClient = Depends(get_llm_client),  # Now async
     cache: CacheManager = Depends(get_cache_manager),
     settings: Settings = Depends(get_app_settings)
 ) -> LLMService:
@@ -129,7 +145,7 @@ async def get_llm_service(
     Get LLM service instance.
     
     Args:
-        client: LLM client
+        client: LLM client (singleton)
         cache: Cache manager
         settings: Application settings
     

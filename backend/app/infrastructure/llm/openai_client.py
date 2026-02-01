@@ -142,26 +142,59 @@ class OpenAIClient(LLMClient):
         return result
     
     async def _stream_completion(self, endpoint: str, payload: dict) -> AsyncIterator[dict]:
-        """Streaming completion"""
-        async with self.client.stream("POST", f"{self.base_url}{endpoint}", json=payload) as response:
-            response.raise_for_status()
+        """
+        Streaming completion with proper async generator pattern.
+        
+        IMPORTANT: Each call creates a fresh HTTP connection to avoid state issues.
+        """
+        try:
+            logger.info(
+                "stream_connection_opening",
+                endpoint=endpoint,
+                model=payload.get("model"),
+                base_url=self.base_url
+            )
             
-            async for line in response.aiter_lines():
-                if not line or line.strip() == "":
-                    continue
+            async with self.client.stream("POST", f"{self.base_url}{endpoint}", json=payload) as response:
+                response.raise_for_status()
                 
-                if line.startswith("data: "):
-                    data = line[6:]  # Remove "data: " prefix
-                    
-                    if data == "[DONE]":
-                        break
-                    
-                    try:
-                        chunk = json.loads(data)
-                        yield chunk
-                    except json.JSONDecodeError as e:
-                        logger.warning("llm_stream_decode_error", error=str(e), data=data[:100])
+                logger.info(
+                    "stream_connection_opened",
+                    status_code=response.status_code,
+                    model=payload.get("model")
+                )
+                
+                chunk_count = 0
+                async for line in response.aiter_lines():
+                    if not line or line.strip() == "":
                         continue
+                    
+                    if line.startswith("data: "):
+                        data = line[6:]  # Remove "data: " prefix
+                        
+                        if data == "[DONE]":
+                            logger.info("stream_completed", model=payload.get("model"), chunks=chunk_count)
+                            break
+                        
+                        try:
+                            chunk = json.loads(data)
+                            chunk_count += 1
+                            yield chunk
+                        except json.JSONDecodeError as e:
+                            logger.warning("llm_stream_decode_error", error=str(e), data=data[:100])
+                            continue
+                
+                logger.info("stream_generator_exiting", model=payload.get("model"), chunks=chunk_count)
+        
+        except Exception as e:
+            logger.error(
+                "stream_completion_error",
+                error=str(e),
+                error_type=type(e).__name__,
+                model=payload.get("model"),
+                exc_info=True
+            )
+            raise
     
     async def create_embedding(
         self,
