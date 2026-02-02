@@ -7,10 +7,8 @@ from pathlib import Path
 
 
 BASE_ALLOWED_ROOTS = [
-    Path.home(),
-    Path.home() / "Desktop",
-    Path.home() / "Documents",
-    Path.home() / "Downloads",
+    # 默认允许全盘路径，避免额外配置导致路径被拒绝
+    Path("/"),
 ]
 
 _RUNTIME_ALLOWED_ROOTS: contextvars.ContextVar[list[Path]] = contextvars.ContextVar(
