@@ -102,6 +102,14 @@ function App() {
       prompt: '在Documents目录搜索最近7天修改的PDF和Word文档，按修改时间排序'
     }
   ]);
+  const [memories, setMemories] = useState({
+    preferences: '',
+    facts: '',
+    episodes: '',
+    tasks: '',
+    relations: ''
+  });
+  const [isRefreshingMemory, setIsRefreshingMemory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const ttsPlayerRef = useRef<TTSPlayer | null>(null);
   // 默认使用18888端口（避免端口冲突）
@@ -285,6 +293,62 @@ function App() {
     }
   };
 
+  const loadMemories = async (currentUserId: string) => {
+    if (!currentUserId) return;
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/memories/${encodeURIComponent(currentUserId)}`
+      );
+      if (!response.ok) {
+        throw new Error(`Load memories failed: ${response.status}`);
+      }
+      const data = await response.json();
+      setMemories({
+        preferences: data.preferences || '',
+        facts: data.facts || '',
+        episodes: data.episodes || '',
+        tasks: data.tasks || '',
+        relations: data.relations || ''
+      });
+    } catch (err) {
+      console.error('Failed to load memories:', err);
+    }
+  };
+
+  const refreshMemory = async () => {
+    const currentUserId = userId || localStorage.getItem('mac_agent_user_id');
+    if (!currentUserId) return;
+    
+    setIsRefreshingMemory(true);
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/memories/${encodeURIComponent(currentUserId)}/refresh`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`Refresh memory failed: ${response.status}`);
+      }
+      const data = await response.json();
+      setMemories({
+        preferences: data.preferences || '',
+        facts: data.facts || '',
+        episodes: data.episodes || '',
+        tasks: data.tasks || '',
+        relations: data.relations || ''
+      });
+    } catch (err) {
+      console.error('Failed to refresh memory:', err);
+      alert('刷新记忆失败');
+    } finally {
+      setIsRefreshingMemory(false);
+    }
+  };
+
   useEffect(() => {
     initSessionState().catch((err) => {
       console.error('Failed to init session:', err);
@@ -296,6 +360,7 @@ function App() {
     if (userId) {
       fetchUserPaths(userId);
       fetchProxyConfig(userId);
+      loadMemories(userId);
     }
   }, [userId]);
 
@@ -1057,6 +1122,9 @@ function App() {
         onTTSConfigChange={handleTTSConfigChange}
         apiUrl={apiUrl}
         userId={userId}
+        memories={memories}
+        onRefreshMemory={refreshMemory}
+        isRefreshingMemory={isRefreshingMemory}
         onClearAllSessions={async () => {
           if (!userId) return;
           try {

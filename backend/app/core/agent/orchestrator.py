@@ -55,6 +55,9 @@ class AgentOrchestrator:
         max_tool_turns: Optional[int] = None,
         extra_system_prompt: Optional[str] = None,
         extra_messages: Optional[list[dict[str, Any]]] = None,
+        model: Optional[str] = None,
+        tool_context: Optional[dict[str, Any]] = None,
+        tool_choice: Optional[dict[str, Any]] = None,
     ) -> AsyncIterator[AgentEvent]:
         """
         Run agent with streaming response.
@@ -69,6 +72,7 @@ class AgentOrchestrator:
             Agent events (content, tool_start, tool_result)
         """
         max_turns = max_tool_turns or self.settings.OPENAI_MAX_TOOL_TURNS
+        effective_model = model or self.settings.OPENAI_MODEL
         
         # Build system content
         system_content = self.system_prompt
@@ -99,9 +103,10 @@ class AgentOrchestrator:
                 # Stream LLM response
                 stream = await self.client.chat_completions(
                     messages=messages,
-                    model=self.settings.OPENAI_MODEL,
+                    model=effective_model,
                     tools=tools,
-                    stream=True
+                    stream=True,
+                    tool_choice=tool_choice
                 )
                 
                 current_content = ""
@@ -196,7 +201,11 @@ class AgentOrchestrator:
                         
                         # Execute tool
                         try:
-                            result = self.registry.execute(name, args)
+                            execution_args = dict(args)
+                            if tool_context:
+                                for key, value in tool_context.items():
+                                    execution_args.setdefault(key, value)
+                            result = self.registry.execute(name, execution_args)
                             logger.info(
                                 "tool_executed",
                                 tool_name=name,

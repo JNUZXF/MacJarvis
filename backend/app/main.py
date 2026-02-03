@@ -22,7 +22,7 @@ from app.middleware.error_handler import (
 )
 
 # Import API routers
-from app.api.v1 import chat, sessions, files, users, tts, asr
+from app.api.v1 import chat, sessions, files, users, tts, asr, memories
 
 settings = get_settings()
 
@@ -223,6 +223,7 @@ app.include_router(files.router, prefix=settings.API_V1_PREFIX, tags=["files"])
 app.include_router(users.router, prefix=settings.API_V1_PREFIX, tags=["users"])
 app.include_router(tts.router, prefix=f"{settings.API_V1_PREFIX}/tts", tags=["tts"])
 app.include_router(asr.router, prefix=f"{settings.API_V1_PREFIX}/asr", tags=["asr"])
+app.include_router(memories.router, tags=["memories"])
 
 
 # ============================================================================

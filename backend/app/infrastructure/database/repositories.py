@@ -11,7 +11,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.infrastructure.database.models import (
     User, Session as DBSession, Message, UserPath,
-    EpisodicMemory, SemanticMemory, UploadedFile
+    UploadedFile
 )
 
 logger = structlog.get_logger(__name__)
@@ -316,92 +316,3 @@ class UserPathRepository:
         self.db.add(user_path)
         await self.db.flush()
         return True
-
-
-class EpisodicMemoryRepository:
-    """Repository for EpisodicMemory model operations"""
-    
-    def __init__(self, db: AsyncSession):
-        self.db = db
-    
-    async def create(
-        self,
-        memory_id: str,
-        user_id: str,
-        session_id: Optional[str],
-        episode_type: str,
-        summary: str,
-        content: dict,
-        metadata: Optional[dict] = None
-    ) -> EpisodicMemory:
-        """Create new episodic memory"""
-        memory = EpisodicMemory(
-            id=memory_id,
-            user_id=user_id,
-            session_id=session_id,
-            episode_type=episode_type,
-            summary=summary,
-            content=content,
-            memory_metadata=metadata or {}
-        )
-        self.db.add(memory)
-        await self.db.flush()
-        return memory
-    
-    async def search_by_keywords(
-        self,
-        user_id: str,
-        query: str,
-        limit: int = 5
-    ) -> List[EpisodicMemory]:
-        """Search episodic memories by keywords (simple text matching)"""
-        # Simple keyword search - in production, use full-text search
-        result = await self.db.execute(
-            select(EpisodicMemory)
-            .where(EpisodicMemory.user_id == user_id)
-            .where(EpisodicMemory.summary.contains(query))
-            .order_by(EpisodicMemory.created_at.desc())
-            .limit(limit)
-        )
-        return list(result.scalars().all())
-
-
-class SemanticMemoryRepository:
-    """Repository for SemanticMemory model operations"""
-    
-    def __init__(self, db: AsyncSession):
-        self.db = db
-    
-    async def create(
-        self,
-        memory_id: str,
-        user_id: str,
-        content: str,
-        embedding: List[float],
-        metadata: Optional[dict] = None
-    ) -> SemanticMemory:
-        """Create new semantic memory"""
-        memory = SemanticMemory(
-            id=memory_id,
-            user_id=user_id,
-            content=content,
-            embedding=embedding,
-            memory_metadata=metadata or {}
-        )
-        self.db.add(memory)
-        await self.db.flush()
-        return memory
-    
-    async def list_by_user(
-        self,
-        user_id: str,
-        limit: int = 100
-    ) -> List[SemanticMemory]:
-        """List semantic memories for a user"""
-        result = await self.db.execute(
-            select(SemanticMemory)
-            .where(SemanticMemory.user_id == user_id)
-            .order_by(SemanticMemory.created_at.desc())
-            .limit(limit)
-        )
-        return list(result.scalars().all())

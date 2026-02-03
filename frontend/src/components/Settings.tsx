@@ -29,6 +29,15 @@ interface SettingsProps {
   apiUrl: string;
   userId: string;
   onClearAllSessions: () => void;
+  memories: {
+    preferences: string;
+    facts: string;
+    episodes: string;
+    tasks: string;
+    relations: string;
+  };
+  onRefreshMemory: () => void;
+  isRefreshingMemory: boolean;
 }
 
 export const Settings: React.FC<SettingsProps> = ({
@@ -51,9 +60,22 @@ export const Settings: React.FC<SettingsProps> = ({
   apiUrl,
   userId,
   onClearAllSessions,
+  memories,
+  onRefreshMemory,
+  isRefreshingMemory,
 }) => {
   const [pathInput, setPathInput] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  const combinedMemoryText = [
+    memories.preferences ? `偏好记忆:\n${memories.preferences}` : '',
+    memories.facts ? `事实记忆:\n${memories.facts}` : '',
+    memories.episodes ? `情景记忆:\n${memories.episodes}` : '',
+    memories.tasks ? `任务记忆:\n${memories.tasks}` : '',
+    memories.relations ? `关系记忆:\n${memories.relations}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 
   if (!isOpen) return null;
 
@@ -261,6 +283,35 @@ export const Settings: React.FC<SettingsProps> = ({
               apiUrl={apiUrl}
               onConfigChange={onTTSConfigChange}
             />
+          </div>
+
+          {/* 记忆管理 */}
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>
+              <span className={styles.sectionTitleIndicator}></span>
+              记忆管理
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className={styles.label}>记忆内容</label>
+                <div className={styles.memoryContent}>
+                  {combinedMemoryText || '暂无记忆'}
+                </div>
+              </div>
+              
+              <button
+                type="button"
+                onClick={onRefreshMemory}
+                disabled={isRefreshingMemory}
+                className={clsx(styles.button, styles.buttonPrimary, "w-full")}
+              >
+                {isRefreshingMemory ? '刷新中...' : '刷新记忆'}
+              </button>
+
+              <p className={clsx(styles.infoBox, styles.infoBoxBlue)}>
+                🧠 <strong>记忆系统：</strong>Agent会自动记住您的偏好、重要信息和对话内容。您也可以点击"刷新记忆"手动更新。记忆内容仅存储在本地，不会上传。
+              </p>
+            </div>
           </div>
 
           {/* 数据管理 */}

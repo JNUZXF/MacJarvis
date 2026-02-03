@@ -1,22 +1,22 @@
 # File: backend/app/api/v1/memories.py
-# Purpose: API endpoints for memory management
-from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Optional, List
+# Purpose: Simplified API endpoints for memory management
+from fastapi import APIRouter, Depends, HTTPException
+from typing import Dict
+import json
 import structlog
 
-from app.api.schemas.memory import (
-    MemoryContextResponse,
-    MemoryStatisticsResponse,
-    PreferenceResponse,
-    FactResponse,
-    TaskResponse,
-    RelationResponse,
-    ConsolidationResponse
-)
 from app.services.memory_manager import MemoryManager
-from app.services.memory_consolidator import MemoryConsolidator
-from app.services.memory_integration_service import MemoryIntegrationService
 from app.infrastructure.database.connection import get_db_session
+from app.dependencies import (
+    get_llm_service,
+    get_session_service,
+    get_conversation_history_service,
+    get_app_settings,
+)
+from app.services.llm_service import LLMService
+from app.services.session_service import SessionService
+from app.services.conversation_history_service import ConversationHistoryService
+from app.config import Settings
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger(__name__)
@@ -24,388 +24,144 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/memories", tags=["memories"])
 
 
-@router.get("/{user_id}/context", response_model=MemoryContextResponse)
-async def get_user_memory_context(
+@router.get("/{user_id}")
+async def get_user_memories(
     user_id: str,
-    max_items: int = Query(default=10, ge=1, le=50),
     db: AsyncSession = Depends(get_db_session)
-):
+) -> Dict[str, str]:
     """
-    Get user's memory context for display or debugging
+    Get all memory types for a user
 
     Args:
         user_id: User identifier
-        max_items: Maximum items per memory type
         db: Database session
 
     Returns:
-        User's memory context
+        Dictionary with 5 memory types
     """
     try:
         memory_manager = MemoryManager(db)
-        context = await memory_manager.get_user_context(
-            user_id=user_id,
-            max_items_per_type=max_items
-        )
-
-        return MemoryContextResponse(
-            user_id=user_id,
-            preferences=context["preferences"],
-            facts=context["facts"],
-            active_tasks=context["active_tasks"],
-            relations=context["relations"]
-        )
+        memories = await memory_manager.get_user_memory(user_id)
+        return memories
 
     except Exception as e:
-        logger.error("get_memory_context_failed", user_id=user_id, error=str(e))
+        logger.error("get_user_memories_failed", user_id=user_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{user_id}/preferences", response_model=List[PreferenceResponse])
-async def get_user_preferences(
+@router.post("/{user_id}/refresh")
+async def refresh_user_memory(
     user_id: str,
-    category: Optional[str] = None,
-    limit: int = Query(default=50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db_session)
-):
+    db: AsyncSession = Depends(get_db_session),
+    llm_service: LLMService = Depends(get_llm_service),
+    session_service: SessionService = Depends(get_session_service),
+    conversation_history_service: ConversationHistoryService = Depends(get_conversation_history_service),
+    settings: Settings = Depends(get_app_settings),
+) -> Dict[str, str]:
     """
-    Get user preferences
-
+    Manually trigger memory refresh for a user
+    
+    This endpoint calls LLM to summarize all user conversations
+    and update memories by type.
+    
     Args:
         user_id: User identifier
-        category: Optional category filter
-        limit: Maximum number of preferences
         db: Database session
 
     Returns:
-        List of user preferences
+        Updated memories
     """
     try:
         memory_manager = MemoryManager(db)
-        preferences = await memory_manager.get_preferences(
-            user_id=user_id,
-            category=category,
-            limit=limit
-        )
 
-        return [
-            PreferenceResponse(
-                id=p.id,
-                category=p.category,
-                key=p.preference_key,
-                value=p.preference_value,
-                confidence=p.confidence,
-                source=p.source,
-                created_at=p.created_at,
-                updated_at=p.updated_at
+        sessions = await session_service.list_sessions(user_id=user_id, limit=200, offset=0)
+        if not sessions:
+            memories = await memory_manager.get_user_memory(user_id)
+            logger.info("memory_refresh_no_sessions", user_id=user_id)
+            return memories
+
+        conversation_blocks = []
+        for session in sessions:
+            session_id = session.get("id")
+            session_title = session.get("title") or "未命名会话"
+            messages = await conversation_history_service.get_session_messages(
+                session_id=session_id,
+                include_system=False
             )
-            for p in preferences
-        ]
+            if not messages:
+                continue
 
-    except Exception as e:
-        logger.error("get_preferences_failed", user_id=user_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+            lines = [f"会话标题: {session_title}"]
+            for msg in messages:
+                role = msg.get("role")
+                content = (msg.get("content") or "").strip()
+                if not content:
+                    continue
+                if role == "user":
+                    lines.append(f"用户: {content}")
+                elif role == "assistant":
+                    lines.append(f"助手: {content}")
+            if len(lines) > 1:
+                conversation_blocks.append("\n".join(lines))
 
+        if not conversation_blocks:
+            memories = await memory_manager.get_user_memory(user_id)
+            logger.info("memory_refresh_no_messages", user_id=user_id)
+            return memories
 
-@router.get("/{user_id}/facts", response_model=List[FactResponse])
-async def get_user_facts(
-    user_id: str,
-    fact_type: Optional[str] = None,
-    limit: int = Query(default=100, ge=1, le=200),
-    db: AsyncSession = Depends(get_db_session)
-):
-    """
-    Get user facts
+        full_text = "\n\n---\n\n".join(conversation_blocks)
 
-    Args:
-        user_id: User identifier
-        fact_type: Optional fact type filter
-        limit: Maximum number of facts
-        db: Database session
-
-    Returns:
-        List of user facts
-    """
-    try:
-        memory_manager = MemoryManager(db)
-        facts = await memory_manager.get_facts(
-            user_id=user_id,
-            fact_type=fact_type,
-            limit=limit
+        system_prompt = (
+            "你是一个记忆整理助手。请根据用户所有对话内容，提炼并总结用户记忆。"
+            "你必须只输出严格JSON，不要输出额外文字。"
+            "JSON必须包含以下键：preferences, facts, episodes, tasks, relations。"
+            "每个值为字符串，使用多段落自然语言描述。"
+        )
+        user_prompt = (
+            "请基于以下对话记录总结用户记忆：\n\n"
+            f"{full_text[:60000]}"
         )
 
-        return [
-            FactResponse(
-                id=f.id,
-                fact_type=f.fact_type,
-                subject=f.subject,
-                value=f.fact_value,
-                confidence=f.confidence,
-                source=f.source,
-                created_at=f.created_at,
-                updated_at=f.updated_at
-            )
-            for f in facts
-        ]
-
-    except Exception as e:
-        logger.error("get_facts_failed", user_id=user_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/{user_id}/tasks", response_model=List[TaskResponse])
-async def get_user_tasks(
-    user_id: str,
-    status: Optional[str] = None,
-    task_type: Optional[str] = None,
-    limit: int = Query(default=50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db_session)
-):
-    """
-    Get user tasks
-
-    Args:
-        user_id: User identifier
-        status: Optional status filter (active, completed, etc.)
-        task_type: Optional task type filter
-        limit: Maximum number of tasks
-        db: Database session
-
-    Returns:
-        List of user tasks
-    """
-    try:
-        memory_manager = MemoryManager(db)
-        tasks = await memory_manager.get_tasks(
-            user_id=user_id,
-            status=status,
-            task_type=task_type,
-            limit=limit
+        response = await llm_service.chat_completion(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            model=settings.OPENAI_MODEL,
+            temperature=0.2,
+            max_tokens=1200,
+            use_cache=False
         )
 
-        return [
-            TaskResponse(
-                id=t.id,
-                task_type=t.task_type,
-                title=t.title,
-                description=t.description,
-                status=t.status,
-                progress=t.progress,
-                priority=t.priority,
-                created_at=t.created_at,
-                updated_at=t.updated_at
-            )
-            for t in tasks
-        ]
+        raw_content = response["choices"][0]["message"]["content"].strip()
+        json_start = raw_content.find("{")
+        json_end = raw_content.rfind("}")
+        if json_start == -1 or json_end == -1:
+            raise ValueError("LLM response is not valid JSON")
 
-    except Exception as e:
-        logger.error("get_tasks_failed", user_id=user_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        parsed = json.loads(raw_content[json_start:json_end + 1])
 
-
-@router.get("/{user_id}/relations", response_model=List[RelationResponse])
-async def get_user_relations(
-    user_id: str,
-    entity: Optional[str] = None,
-    relation_type: Optional[str] = None,
-    limit: int = Query(default=100, ge=1, le=200),
-    db: AsyncSession = Depends(get_db_session)
-):
-    """
-    Get user relations
-
-    Args:
-        user_id: User identifier
-        entity: Optional entity filter
-        relation_type: Optional relation type filter
-        limit: Maximum number of relations
-        db: Database session
-
-    Returns:
-        List of user relations
-    """
-    try:
-        memory_manager = MemoryManager(db)
-        relations = await memory_manager.get_relations(
-            user_id=user_id,
-            entity=entity,
-            relation_type=relation_type,
-            limit=limit
-        )
-
-        return [
-            RelationResponse(
-                id=r.id,
-                subject_entity=r.subject_entity,
-                subject_type=r.subject_type,
-                relation_type=r.relation_type,
-                object_entity=r.object_entity,
-                object_type=r.object_type,
-                confidence=r.confidence,
-                created_at=r.created_at,
-                updated_at=r.updated_at
-            )
-            for r in relations
-        ]
-
-    except Exception as e:
-        logger.error("get_relations_failed", user_id=user_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/{user_id}/statistics", response_model=MemoryStatisticsResponse)
-async def get_memory_statistics(
-    user_id: str,
-    db: AsyncSession = Depends(get_db_session)
-):
-    """
-    Get memory statistics for a user
-
-    Args:
-        user_id: User identifier
-        db: Database session
-
-    Returns:
-        Memory statistics
-    """
-    try:
-        consolidator = MemoryConsolidator(db)
-        stats = await consolidator.get_memory_statistics(user_id)
-
-        return MemoryStatisticsResponse(**stats)
-
-    except Exception as e:
-        logger.error("get_memory_statistics_failed", user_id=user_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{user_id}/consolidate", response_model=ConsolidationResponse)
-async def consolidate_user_memories(
-    user_id: str,
-    db: AsyncSession = Depends(get_db_session)
-):
-    """
-    Manually trigger memory consolidation for a user
-
-    Args:
-        user_id: User identifier
-        db: Database session
-
-    Returns:
-        Consolidation results
-    """
-    try:
-        consolidator = MemoryConsolidator(db)
-        stats = await consolidator.consolidate_user_memories(user_id)
-
-        return ConsolidationResponse(
-            user_id=user_id,
-            preferences_decayed=stats["preferences_decayed"],
-            preferences_removed=stats["preferences_removed"],
-            facts_decayed=stats["facts_decayed"],
-            facts_removed=stats["facts_removed"],
-            tasks_marked_stale=stats["tasks_marked_stale"],
-            relations_decayed=stats["relations_decayed"],
-            relations_removed=stats["relations_removed"]
-        )
-
-    except Exception as e:
-        logger.error("consolidate_memories_failed", user_id=user_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/{user_id}/preferences/{preference_id}")
-async def delete_preference(
-    user_id: str,
-    preference_id: str,
-    db: AsyncSession = Depends(get_db_session)
-):
-    """Delete a specific preference"""
-    try:
-        from sqlalchemy import delete
-        from app.infrastructure.database.models import PreferenceMemory
-
-        result = await db.execute(
-            delete(PreferenceMemory).where(
-                PreferenceMemory.id == preference_id,
-                PreferenceMemory.user_id == user_id
-            )
-        )
-        await db.commit()
-
-        if result.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Preference not found")
-
-        return {"status": "deleted", "id": preference_id}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("delete_preference_failed", user_id=user_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/{user_id}/facts/{fact_id}")
-async def delete_fact(
-    user_id: str,
-    fact_id: str,
-    db: AsyncSession = Depends(get_db_session)
-):
-    """Delete a specific fact"""
-    try:
-        from sqlalchemy import delete
-        from app.infrastructure.database.models import FactMemory
-
-        result = await db.execute(
-            delete(FactMemory).where(
-                FactMemory.id == fact_id,
-                FactMemory.user_id == user_id
-            )
-        )
-        await db.commit()
-
-        if result.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Fact not found")
-
-        return {"status": "deleted", "id": fact_id}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("delete_fact_failed", user_id=user_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.patch("/{user_id}/tasks/{task_id}")
-async def update_task_status(
-    user_id: str,
-    task_id: str,
-    status: Optional[str] = None,
-    progress: Optional[int] = None,
-    db: AsyncSession = Depends(get_db_session)
-):
-    """Update task status or progress"""
-    try:
-        memory_manager = MemoryManager(db)
-        task = await memory_manager.update_task(
-            task_id=task_id,
-            user_id=user_id,  # Pass user_id for authorization check
-            status=status,
-            progress=progress
-        )
-
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found or not authorized")
-
-        return {
-            "status": "updated",
-            "id": task_id,
-            "new_status": task.status,
-            "new_progress": task.progress
+        updated = {
+            "preferences": str(parsed.get("preferences", "")).strip(),
+            "facts": str(parsed.get("facts", "")).strip(),
+            "episodes": str(parsed.get("episodes", "")).strip(),
+            "tasks": str(parsed.get("tasks", "")).strip(),
+            "relations": str(parsed.get("relations", "")).strip(),
         }
 
-    except HTTPException:
-        raise
+        for memory_type, content in updated.items():
+            await memory_manager.update_user_memory(
+                user_id=user_id,
+                memory_type=memory_type,
+                content=content
+            )
+
+        logger.info("memory_refresh_completed", user_id=user_id)
+        return updated
+        
+        logger.info("memory_refresh_triggered", user_id=user_id)
+        return memories
+
     except Exception as e:
-        logger.error("update_task_failed", user_id=user_id, error=str(e))
+        logger.error("refresh_user_memory_failed", user_id=user_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))

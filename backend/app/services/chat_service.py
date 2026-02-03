@@ -10,12 +10,13 @@ from app.services.llm_service import LLMService
 from app.services.session_service import SessionService
 from app.services.file_service import FileService
 from app.services.conversation_history_service import ConversationHistoryService
-from app.services.memory_integration_service import MemoryIntegrationService
 from app.services.tts_service import TextSegmenter
 from app.api.v1.tts import synthesize_speech_stream
 from app.config import Settings
 from app.core.agent.orchestrator import AgentOrchestrator
 from app.core.tools.registry import ToolRegistry
+from app.infrastructure.database.connection import get_session_maker
+from agent.tools.mac_tools import build_default_tools
 from datetime import datetime
 import json
 
@@ -38,12 +39,43 @@ BASE_SYSTEM_PROMPT = dedent("""
     - 网络诊断：检查网络配置、端口状态、DNS设置
     - 应用管理：启动应用、管理已安装程序
     - 开发工具：Git操作、端口管理、文件对比
+    - 记忆管理：记住用户的偏好、事实、重要对话、任务和关系
     
     ## 工具使用原则
     1. **优先使用已注册工具**：你必须优先使用提供的工具来完成任务
     2. **安全第一**：在执行具有潜在风险的操作（如删除文件、修改系统设置）前，请务必仔细确认路径和参数
     3. **明确限制**：如果我请求存在安全风险或超出工具能力，直接说明限制并给出可行替代方案
     4. **禁止危险操作**：绝不执行会清空系统目录、破坏安全设置或泄露敏感信息的操作
+
+    ## 记忆系统使用指南
+    你拥有update_memory工具来记住关于用户的重要信息。当用户表达以下内容时，应该使用此工具：
+    
+    1. **偏好记忆 (preferences)**：用户的明确偏好
+       - 例如："我喜欢简洁的回复"、"我是素食主义者"、"我习惯用VSCode"
+       - 何时更新：用户明确表达喜好、习惯、风格偏好时
+    
+    2. **事实记忆 (facts)**：关于用户的客观信息
+       - 例如：姓名、职业、工作地点、家庭成员、使用的技术栈
+       - 何时更新：用户分享个人信息、工作背景、技术能力时
+    
+    3. **情景记忆 (episodes)**：重要的对话片段或事件
+       - 例如："上周讨论了巴黎旅行计划"、"昨天解决了数据库连接问题"
+       - 何时更新：完成重要任务、讨论重要话题、解决关键问题后
+    
+    4. **任务记忆 (tasks)**：进行中的工作状态
+       - 例如："正在开发用户认证模块"、"需要优化API性能"
+       - 何时更新：用户提到新任务、更新任务进度、完成任务时
+    
+    5. **关系记忆 (relations)**：实体间的关联
+       - 例如："Alice是我的项目经理"、"项目X使用Python和FastAPI"
+       - 何时更新：用户提到人际关系、项目技术栈、组织结构时
+    
+    **记忆更新原则**：
+    - 主动识别：在对话中主动识别值得记住的信息
+    - 及时更新：当获得新信息时立即更新相应的记忆类型
+    - 简洁描述：用自然语言简洁描述，避免冗长
+    - 累积更新：新信息应该追加到现有记忆中，而不是替换
+    - 强制触发：当用户明确说“请记住/记住这点/请记录”或直接陈述个人事实与偏好时，必须调用 update_memory 工具
 
     ## 文件保存规范
     - 你可以在任何位置创建文件，但所有需要长期保存的产出内容默认写入固定目录：~/.mac_agent/records/
@@ -82,8 +114,7 @@ class ChatService:
         session_service: SessionService,
         file_service: FileService,
         conversation_history_service: ConversationHistoryService,
-        settings: Settings,
-        memory_integration_service: Optional[MemoryIntegrationService] = None
+        settings: Settings
     ):
         """
         Initialize chat service.
@@ -94,14 +125,22 @@ class ChatService:
             file_service: File handling service
             conversation_history_service: Conversation history service
             settings: Application settings
-            memory_integration_service: Optional memory integration service
         """
         self.llm = llm_service
         self.sessions = session_service
         self.files = file_service
         self.conversation_history = conversation_history_service
         self.settings = settings
-        self.memory = memory_integration_service
+        self.tool_registry = self._build_tool_registry()
+
+    def _build_tool_registry(self) -> ToolRegistry:
+        """Build tool registry with database session factory injected."""
+        tools = build_default_tools()
+        session_maker = get_session_maker(self.settings)
+        for tool in tools:
+            if getattr(tool, "name", "") == "update_memory":
+                tool.db_session_factory = session_maker
+        return ToolRegistry(tools)
     
     async def process_chat_message(
         self,
@@ -130,6 +169,20 @@ class ChatService:
             Event dictionaries (content, tool_start, tool_result, error)
         """
         try:
+            # Use tool-enabled pipeline for all requests
+            async for event in self.process_chat_message_with_tools(
+                user_id=user_id,
+                session_id=session_id,
+                message=message,
+                tool_registry=self.tool_registry,
+                model=model,
+                attachments=attachments,
+                tts_enabled=tts_enabled,
+                tts_voice=tts_voice,
+                tts_model=tts_model
+            ):
+                yield event
+            return
             logger.info(
                 "chat_process_enter",
                 user_id=user_id,
@@ -212,10 +265,8 @@ class ChatService:
                     attachments
                 )
             
-            # Get memory context if memory service is available
+            # Memory context is now handled by Agent's update_memory tool
             memory_context = ""
-            if self.memory:
-                memory_context = await self.memory.build_memory_context_prompt(user_id)
 
             # Build messages for LLM
             messages = self._build_llm_messages(
@@ -344,23 +395,8 @@ class ChatService:
                 metadata={"timestamp": assistant_msg_timestamp.isoformat()}
             )
 
-            # Extract and store memories in background (if memory service is available)
-            if self.memory:
-                try:
-                    await self.memory.extract_and_store_memories(
-                        user_id=user_id,
-                        session_id=session_id,
-                        user_message=message,
-                        assistant_response=assistant_content,
-                        background=True  # Run in background to not block response
-                    )
-                except Exception as memory_error:
-                    logger.error(
-                        "memory_extraction_failed",
-                        user_id=user_id,
-                        session_id=session_id,
-                        error=str(memory_error)
-                    )
+            # Memory extraction is now handled by Agent's update_memory tool
+            # Agent will automatically call update_memory when it identifies important information
 
             # Export conversation history to Markdown files
             try:
@@ -741,6 +777,10 @@ class ChatService:
             else:
                 user_input = message
 
+            # Force memory tool call for explicit "remember" intent
+            memory_trigger_phrases = ["请记住", "记住这", "记住：", "记住:", "我的爱好", "我喜欢"]
+            should_force_memory_tool = any(phrase in message for phrase in memory_trigger_phrases)
+
             # Get recent history for context
             history = session.get("messages", [])[-10:]
             extra_messages = []
@@ -751,10 +791,19 @@ class ChatService:
                         "content": hist_msg.get("content", "")
                     })
 
-            # Get memory context if memory service is available
+            # Memory context is now handled by Agent's update_memory tool
             memory_context = ""
-            if self.memory:
-                memory_context = await self.memory.build_memory_context_prompt(user_id)
+
+            # Determine model
+            model = model or self.settings.OPENAI_MODEL
+
+            # Validate model
+            if not self.settings.is_model_allowed(model):
+                yield {
+                    "type": "error",
+                    "error": f"Model not allowed: {model}"
+                }
+                return
 
             # Create agent orchestrator
             llm_client = self.llm.client
@@ -786,7 +835,14 @@ class ChatService:
 
             async for event in orchestrator.run_stream(
                 user_input=user_input,
-                extra_messages=extra_messages
+                extra_messages=extra_messages,
+                model=model,
+                tool_context={"user_id": user_id},
+                tool_choice=(
+                    {"type": "function", "function": {"name": "update_memory"}}
+                    if should_force_memory_tool
+                    else None
+                ),
             ):
                 event_type = event.get("type")
 
@@ -885,23 +941,8 @@ class ChatService:
                 metadata=metadata
             )
 
-            # Extract and store memories in background (if memory service is available)
-            if self.memory:
-                try:
-                    await self.memory.extract_and_store_memories(
-                        user_id=user_id,
-                        session_id=session_id,
-                        user_message=message,
-                        assistant_response=assistant_content,
-                        background=True  # Run in background to not block response
-                    )
-                except Exception as memory_error:
-                    logger.error(
-                        "memory_extraction_failed",
-                        user_id=user_id,
-                        session_id=session_id,
-                        error=str(memory_error)
-                    )
+            # Memory extraction is now handled by Agent's update_memory tool
+            # Agent will automatically call update_memory when it identifies important information
 
             # Export conversation history to Markdown files
             try:

@@ -112,6 +112,9 @@ from agent.tools.app import (
 # 时间工具
 from agent.tools.time import TimezoneConverterTool
 
+# 记忆工具
+from agent.tools.memory import UpdateMemoryTool
+
 # 导入命令生成函数
 from agent.tools.env_detector import (
     get_dns_info_command,
@@ -123,10 +126,11 @@ from agent.tools.env_detector import (
 
 
 def build_default_tools() -> list[Any]:
-    """构建默认工具集 - 共50个工具，覆盖工作生活的方方面面
+    """构建默认工具集 - 共51个工具，覆盖工作生活的方方面面
     
     核心工具:
     - ExecuteShellCommandTool: 执行任意Shell命令（支持管道、重定向，内置安全检查）
+    - UpdateMemoryTool: 更新用户记忆（偏好、事实、情景、任务、关系）
     
     高级工具:
     - GrepSearchTool: 在文件中搜索正则表达式
@@ -280,6 +284,10 @@ def build_default_tools() -> list[Any]:
         # 通用命令执行 (Universal Command Execution) - 核心功能
         # ============================================================
         ExecuteShellCommandTool(),  # 执行任意Shell命令
+        # ============================================================
+        # 记忆管理工具 (Memory Management) - 核心功能
+        # ============================================================
+        UpdateMemoryTool(),  # 更新用户记忆
     ]
 
 
@@ -340,6 +348,8 @@ __all__ = [
     "OpenUrlTool",
     # 时间工具
     "TimezoneConverterTool",
+    # 记忆工具
+    "UpdateMemoryTool",
     # 构建函数
     "build_default_tools",
 ]

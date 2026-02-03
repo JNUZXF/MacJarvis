@@ -101,6 +101,28 @@ if [ ! -d ".venv" ]; then
 fi
 source .venv/bin/activate
 
+# 检查关键依赖
+echo -e "${BLUE}检查后端依赖...${NC}"
+if ! python -c "import gunicorn" 2>/dev/null; then
+    echo -e "${RED}✗ gunicorn 未安装${NC}"
+    echo -e "${YELLOW}正在安装 gunicorn...${NC}"
+    pip install gunicorn || {
+        echo -e "${RED}gunicorn 安装失败，请手动执行: pip install gunicorn${NC}"
+        exit 1
+    }
+fi
+
+if ! python -c "import uvicorn" 2>/dev/null; then
+    echo -e "${RED}✗ uvicorn 未安装${NC}"
+    echo -e "${YELLOW}正在安装 uvicorn...${NC}"
+    pip install uvicorn || {
+        echo -e "${RED}uvicorn 安装失败，请手动执行: pip install uvicorn${NC}"
+        exit 1
+    }
+fi
+
+echo -e "${GREEN}✓${NC} 后端依赖检查通过"
+
 # PostgreSQL 支持多 worker，SQLite 建议单 worker
 WORKERS=2
 if [ -n "${DATABASE_URL:-}" ] && [[ "${DATABASE_URL:-}" == sqlite* ]]; then
@@ -111,7 +133,23 @@ fi
 
 # 启动后端（Gunicorn）- 使用新的应用入口 app.main:app（包含聊天记录保存功能）
 echo -e "${BLUE}启动后端服务（端口 $BACKEND_PORT）...${NC}"
-nohup gunicorn -k uvicorn.workers.UvicornWorker \
+
+# 使用虚拟环境中的gunicorn绝对路径
+VENV_DIR="$SCRIPT_DIR/backend/.venv"
+GUNICORN_PATH="$VENV_DIR/bin/gunicorn"
+
+if [ ! -f "$GUNICORN_PATH" ]; then
+    echo -e "${RED}✗ 无法找到gunicorn: $GUNICORN_PATH${NC}"
+    echo -e "${YELLOW}尝试使用pip安装...${NC}"
+    pip install gunicorn || exit 1
+    if [ ! -f "$GUNICORN_PATH" ]; then
+        echo -e "${RED}✗ gunicorn安装失败${NC}"
+        exit 1
+    fi
+fi
+
+# 使用绝对路径启动gunicorn，并确保Python环境正确
+nohup "$GUNICORN_PATH" -k uvicorn.workers.UvicornWorker \
   app.main:app \
   -w "$WORKERS" \
   -b 0.0.0.0:$BACKEND_PORT \
@@ -149,22 +187,124 @@ else
     echo -e "${YELLOW}⚠${NC}  未检测到nginx，请手动安装并启动"
 fi
 
-# 健康检查
-sleep 3
-if curl -s http://localhost:$BACKEND_PORT/health > /dev/null 2>&1; then
+# 健康检查 - 等待后端真正启动
+echo -e "${BLUE}等待后端服务启动...${NC}"
+MAX_RETRIES=30
+RETRY_COUNT=0
+BACKEND_READY=false
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if curl -s -f http://localhost:$BACKEND_PORT/health > /dev/null 2>&1; then
+        BACKEND_READY=true
+        break
+    fi
+    
+    # 检查进程是否还在运行
+    if ! kill -0 $BACKEND_PID 2>/dev/null; then
+        echo -e "${RED}✗ 后端进程意外退出${NC}"
+        echo -e "${RED}最后10行错误日志:${NC}"
+        tail -n 10 logs/backend_prod.log
+        echo ""
+        echo -e "${RED}完整日志请查看: logs/backend_prod.log${NC}"
+        exit 1
+    fi
+    
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    echo -n "."
+    sleep 1
+done
+
+echo ""
+
+if [ "$BACKEND_READY" = true ]; then
     echo -e "${GREEN}✓${NC} 后端服务启动成功 (PID: $BACKEND_PID)"
+    
+    # 测试关键API端点
+    echo -e "${BLUE}测试关键API端点...${NC}"
+    
+    # 测试 session init
+    if curl -s -f -X POST http://localhost:$BACKEND_PORT/api/v1/session/init \
+        -H "Content-Type: application/json" \
+        -d '{"user_id":"health_check"}' > /dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} Session API 正常"
+    else
+        echo -e "${YELLOW}⚠${NC}  Session API 响应异常（可能需要检查）"
+    fi
+    
+    # 测试详细健康检查
+    DETAILED_HEALTH=$(curl -s http://localhost:$BACKEND_PORT/health/detailed)
+    if echo "$DETAILED_HEALTH" | grep -q '"status":"healthy"'; then
+        echo -e "${GREEN}✓${NC} 所有组件健康"
+    elif echo "$DETAILED_HEALTH" | grep -q '"status":"degraded"'; then
+        echo -e "${YELLOW}⚠${NC}  部分组件降级运行"
+        echo "$DETAILED_HEALTH" | python3 -m json.tool 2>/dev/null || echo "$DETAILED_HEALTH"
+    else
+        echo -e "${YELLOW}⚠${NC}  健康检查返回异常状态"
+        echo "$DETAILED_HEALTH"
+    fi
 else
-    echo -e "${RED}✗${NC} 后端服务启动失败，请查看 logs/backend_prod.log"
+    echo -e "${RED}✗${NC} 后端服务启动超时（${MAX_RETRIES}秒）"
+    echo -e "${RED}最后20行日志:${NC}"
+    tail -n 20 logs/backend_prod.log
+    echo ""
+    echo -e "${RED}完整日志请查看: logs/backend_prod.log${NC}"
+    
+    # 清理失败的进程
+    if kill -0 $BACKEND_PID 2>/dev/null; then
+        kill $BACKEND_PID 2>/dev/null || true
+    fi
+    
     exit 1
 fi
 
-# 输出访问地址
+# 前后端连通性测试
 echo ""
-echo -e "${GREEN}================================${NC}"
-echo -e "${GREEN}   🎉 生产模式启动成功！${NC}"
-echo -e "${GREEN}================================${NC}"
-echo ""
-echo -e "访问地址:"
-echo -e "  前端界面: ${BLUE}http://localhost:$FRONTEND_PORT${NC}"
-echo -e "  后端API:  ${BLUE}http://localhost:$BACKEND_PORT${NC}"
-echo ""
+echo -e "${BLUE}执行前后端连通性测试...${NC}"
+if [ -f "scripts/test_frontend_backend_connectivity.sh" ]; then
+    chmod +x scripts/test_frontend_backend_connectivity.sh
+    if bash scripts/test_frontend_backend_connectivity.sh "http://127.0.0.1:$BACKEND_PORT" "http://localhost:$FRONTEND_PORT"; then
+        echo ""
+        echo -e "${GREEN}================================${NC}"
+        echo -e "${GREEN}   🎉 生产模式启动成功！${NC}"
+        echo -e "${GREEN}================================${NC}"
+        echo ""
+        echo -e "访问地址:"
+        echo -e "  前端界面: ${BLUE}http://localhost:$FRONTEND_PORT${NC}"
+        echo -e "  后端API:  ${BLUE}http://localhost:$BACKEND_PORT${NC}"
+        echo ""
+        echo -e "管理命令:"
+        echo -e "  查看日志: ${BLUE}tail -f logs/backend_prod.log${NC}"
+        echo -e "  停止服务: ${BLUE}./stop_prod.sh${NC}"
+        echo ""
+    else
+        echo ""
+        echo -e "${RED}================================${NC}"
+        echo -e "${RED}   ⚠️  启动完成但连通性测试失败${NC}"
+        echo -e "${RED}================================${NC}"
+        echo ""
+        echo -e "${YELLOW}服务已启动，但前后端连通性存在问题${NC}"
+        echo -e "${YELLOW}请检查上述测试失败的原因${NC}"
+        echo ""
+        echo -e "访问地址:"
+        echo -e "  前端界面: ${BLUE}http://localhost:$FRONTEND_PORT${NC}"
+        echo -e "  后端API:  ${BLUE}http://localhost:$BACKEND_PORT${NC}"
+        echo ""
+        echo -e "排查建议:"
+        echo -e "  1. 查看后端日志: ${BLUE}tail -f logs/backend_prod.log${NC}"
+        echo -e "  2. 手动测试后端: ${BLUE}curl http://localhost:$BACKEND_PORT/health${NC}"
+        echo -e "  3. 检查CORS配置: ${BLUE}cat backend/.env | grep CORS${NC}"
+        echo ""
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}⚠${NC}  连通性测试脚本未找到，跳过测试"
+    echo ""
+    echo -e "${GREEN}================================${NC}"
+    echo -e "${GREEN}   🎉 生产模式启动成功！${NC}"
+    echo -e "${GREEN}================================${NC}"
+    echo ""
+    echo -e "访问地址:"
+    echo -e "  前端界面: ${BLUE}http://localhost:$FRONTEND_PORT${NC}"
+    echo -e "  后端API:  ${BLUE}http://localhost:$BACKEND_PORT${NC}"
+    echo ""
+fi
