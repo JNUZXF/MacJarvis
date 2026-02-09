@@ -28,6 +28,7 @@ ENV/
 env/
 .cursor/
 docs/
+TODO.md
 
 # Environment variables
 .env

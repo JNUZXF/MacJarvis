@@ -2,6 +2,7 @@
 # Purpose: Dependency injection for FastAPI with proper lifecycle management
 from typing import AsyncGenerator, Optional
 from fastapi import Depends
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
 import structlog
@@ -288,7 +289,7 @@ async def get_current_user_id(
 # ============================================================================
 
 async def check_database_health(
-    db: AsyncSession = Depends(get_db)
+    db: Optional[AsyncSession] = None
 ) -> dict:
     """
     Check database health.
@@ -300,8 +301,14 @@ async def check_database_health(
         Health status dictionary
     """
     try:
-        # Simple query to test connection
-        await db.execute("SELECT 1")
+        if db is not None:
+            await db.execute(text("SELECT 1"))
+        else:
+            # Support direct function call outside FastAPI dependency injection.
+            settings = get_settings()
+            async for session in get_db_session(settings):
+                await session.execute(text("SELECT 1"))
+                break
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
         logger.error("database_health_check_failed", error=str(e))
@@ -309,7 +316,7 @@ async def check_database_health(
 
 
 async def check_cache_health(
-    cache: CacheManager = Depends(get_cache_manager)
+    cache: Optional[CacheManager] = None
 ) -> dict:
     """
     Check cache health.
@@ -320,6 +327,15 @@ async def check_cache_health(
     Returns:
         Health status dictionary
     """
+    if cache is None:
+        # Support direct function call outside FastAPI dependency injection.
+        settings = get_settings()
+        redis_client = None
+        async for redis in get_redis_client(settings):
+            redis_client = redis
+            break
+        cache = CacheManager(redis_client, settings.LLM_CACHE_TTL)
+
     return await cache.health_check()
 
 

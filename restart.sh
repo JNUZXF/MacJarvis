@@ -18,7 +18,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
 # 停止服务
-./stop.sh
+./stop_prod.sh
 
 echo ""
 echo "等待3秒..."
@@ -26,4 +26,4 @@ sleep 3
 echo ""
 
 # 启动服务
-./start.sh
+./start_prod.sh

@@ -158,9 +158,6 @@ async def refresh_user_memory(
 
         logger.info("memory_refresh_completed", user_id=user_id)
         return updated
-        
-        logger.info("memory_refresh_triggered", user_id=user_id)
-        return memories
 
     except Exception as e:
         logger.error("refresh_user_memory_failed", user_id=user_id, error=str(e))
