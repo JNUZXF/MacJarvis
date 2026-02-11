@@ -131,3 +131,45 @@ class UploadedFile(Base):
         return f"<UploadedFile(id={self.id}, filename={self.filename})>"
 
 
+class DelegatedTask(Base):
+    """Model for tracking delegated background tasks"""
+    __tablename__ = "delegated_tasks"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+
+    # Task information
+    task_description = Column(Text, nullable=False)  # Task description from user
+    context = Column(JSON, nullable=True)  # Additional context (chat history, etc.)
+
+    # Status tracking
+    status = Column(String(20), nullable=False, default='pending')  # pending, running, completed, failed
+    celery_task_id = Column(String(100), nullable=True)  # Celery task ID for tracking
+
+    # Results and error tracking
+    result = Column(Text, nullable=True)  # Task result/output
+    error = Column(Text, nullable=True)  # Error message if failed
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, nullable=True)  # When task started running
+    completed_at = Column(DateTime, nullable=True)  # When task completed/failed
+
+    # Notification tracking
+    notified = Column(Integer, default=0, nullable=False)  # Whether user has been notified (0=no, 1=yes)
+
+    # Indexes
+    __table_args__ = (
+        Index('idx_delegated_task_user_id', 'user_id'),
+        Index('idx_delegated_task_session_id', 'session_id'),
+        Index('idx_delegated_task_status', 'status'),
+        Index('idx_delegated_task_notified', 'notified'),
+        Index('idx_delegated_task_created_at', 'created_at'),
+        Index('idx_delegated_task_user_status', 'user_id', 'status'),
+    )
+
+    def __repr__(self):
+        return f"<DelegatedTask(id={self.id}, status={self.status}, description={self.task_description[:50]}...)>"
+
+

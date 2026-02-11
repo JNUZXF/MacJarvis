@@ -45,6 +45,7 @@ celery_app.conf.update(
         "app.infrastructure.tasks.workers.generate_summary": {"queue": "ai"},
         "app.infrastructure.tasks.workers.extract_file_text": {"queue": "files"},
         "app.infrastructure.tasks.workers.cleanup_old_files": {"queue": "maintenance"},
+        "app.infrastructure.tasks.background_agent.execute_delegated_task": {"queue": "ai"},
     },
     
     # Queues

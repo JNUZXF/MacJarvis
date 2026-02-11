@@ -115,6 +115,9 @@ from agent.tools.time import TimezoneConverterTool
 # 记忆工具
 from agent.tools.memory import UpdateMemoryTool
 
+# 任务委托工具
+from agent.tools.delegation import DelegateTaskTool, CheckDelegatedTasksTool
+
 # 导入命令生成函数
 from agent.tools.env_detector import (
     get_dns_info_command,
@@ -126,12 +129,14 @@ from agent.tools.env_detector import (
 
 
 def build_default_tools() -> list[Any]:
-    """构建默认工具集 - 共51个工具，覆盖工作生活的方方面面
-    
+    """构建默认工具集 - 共53个工具，覆盖工作生活的方方面面
+
     核心工具:
     - ExecuteShellCommandTool: 执行任意Shell命令（支持管道、重定向，内置安全检查）
     - UpdateMemoryTool: 更新用户记忆（偏好、事实、情景、任务、关系）
-    
+    - DelegateTaskTool: 将任务委托给后台智能体执行（不阻塞当前对话）
+    - CheckDelegatedTasksTool: 检查后台任务状态和结果
+
     高级工具:
     - GrepSearchTool: 在文件中搜索正则表达式
     - GrepRecursiveTool: 递归搜索目录
@@ -288,6 +293,11 @@ def build_default_tools() -> list[Any]:
         # 记忆管理工具 (Memory Management) - 核心功能
         # ============================================================
         UpdateMemoryTool(),  # 更新用户记忆
+        # ============================================================
+        # 任务委托工具 (Task Delegation) - 核心功能
+        # ============================================================
+        DelegateTaskTool(),  # 委托任务给后台智能体
+        CheckDelegatedTasksTool(),  # 检查后台任务状态
     ]
 
 
@@ -350,6 +360,9 @@ __all__ = [
     "TimezoneConverterTool",
     # 记忆工具
     "UpdateMemoryTool",
+    # 任务委托工具
+    "DelegateTaskTool",
+    "CheckDelegatedTasksTool",
     # 构建函数
     "build_default_tools",
 ]

@@ -134,12 +134,25 @@ class ChatService:
         self.tool_registry = self._build_tool_registry()
 
     def _build_tool_registry(self) -> ToolRegistry:
-        """Build tool registry with database session factory injected."""
+        """Build tool registry with database session factory and celery app injected."""
         tools = build_default_tools()
         session_maker = get_session_maker(self.settings)
+
+        # Import celery app
+        from app.infrastructure.tasks.celery_app import celery_app
+
+        # Inject dependencies into tools
         for tool in tools:
-            if getattr(tool, "name", "") == "update_memory":
+            tool_name = getattr(tool, "name", "")
+
+            # Inject db_session_factory for memory and delegation tools
+            if tool_name in ("update_memory", "delegate_task", "check_delegated_tasks"):
                 tool.db_session_factory = session_maker
+
+            # Inject celery_app for delegation tool
+            if tool_name == "delegate_task":
+                tool.celery_app = celery_app
+
         return ToolRegistry(tools)
     
     async def process_chat_message(
@@ -837,7 +850,7 @@ class ChatService:
                 user_input=user_input,
                 extra_messages=extra_messages,
                 model=model,
-                tool_context={"user_id": user_id},
+                tool_context={"user_id": user_id, "session_id": session_id},
                 tool_choice=(
                     {"type": "function", "function": {"name": "update_memory"}}
                     if should_force_memory_tool
