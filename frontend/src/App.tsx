@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   Send,
   Terminal as TerminalIcon,
@@ -16,12 +16,13 @@ import {
   X
 } from 'lucide-react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import type { Message, ToolCall, ChatSession, ChatAttachment, TTSConfig } from './types';
+import type { Message, ToolCall, ChatSession, ChatAttachment, TTSConfig, WakeWordConfig } from './types';
 import { ChatMessage } from './components/ChatMessage';
 import { Sidebar } from './components/Sidebar';
 import { Settings } from './components/Settings';
 import { VoiceButton } from './components/VoiceButton';
 import { TTSPlayer } from './utils/tts-manager';
+import { useWakeWord } from './utils/use-wake-word';
 import { v4 as uuidv4 } from 'uuid';
 import styles from './App.module.css';
 
@@ -70,6 +71,14 @@ function App() {
     maxSegmentLength: 200,
     preferSegmentLength: 50,
   });
+  const [wakeWordConfig, setWakeWordConfig] = useState<WakeWordConfig>({
+    enabled: false,
+    keywords: ['霏霏'],
+    commandTimeoutMs: 6000,
+    cooldownMs: 1500,
+    bargeIn: true,
+    stripWakeWord: true,
+  });
   const [artifacts] = useState<Artifact[]>([
     { id: 1, title: '系统诊断报告 v1.0', type: 'scroll', date: new Date().toLocaleDateString('zh-CN') },
     { id: 2, title: '自动化脚本集合', type: 'code', date: new Date().toLocaleDateString('zh-CN') }
@@ -112,6 +121,8 @@ function App() {
   const [isRefreshingMemory, setIsRefreshingMemory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const ttsPlayerRef = useRef<TTSPlayer | null>(null);
+  const isLoadingRef = useRef(false);
+  const isUploadingRef = useRef(false);
   // 默认使用18888端口（避免端口冲突）
   // 注意：macOS/浏览器可能将 localhost 解析为 IPv6 ::1，但后端仅监听 IPv4 时会导致 ERR_CONNECTION_REFUSED
   // 使用 127.0.0.1 强制走 IPv4，避免该类问题
@@ -244,11 +255,37 @@ function App() {
     }
   };
 
+  const loadWakeWordConfig = () => {
+    try {
+      const saved = localStorage.getItem('mac_agent_wakeword_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setWakeWordConfig((prev) => ({
+          ...prev,
+          ...parsed,
+          keywords: Array.isArray(parsed.keywords)
+            ? parsed.keywords.filter((item: unknown) => typeof item === 'string')
+            : prev.keywords,
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to load wake word config:', err);
+    }
+  };
+
   const saveTTSConfig = (config: TTSConfig) => {
     try {
       localStorage.setItem('mac_agent_tts_config', JSON.stringify(config));
     } catch (err) {
       console.error('Failed to save TTS config:', err);
+    }
+  };
+
+  const saveWakeWordConfig = (config: WakeWordConfig) => {
+    try {
+      localStorage.setItem('mac_agent_wakeword_config', JSON.stringify(config));
+    } catch (err) {
+      console.error('Failed to save wake word config:', err);
     }
   };
 
@@ -261,6 +298,12 @@ function App() {
     if (ttsPlayerRef.current) {
       ttsPlayerRef.current.updateConfig(newConfig);
     }
+  };
+
+  const handleWakeWordConfigChange = (updates: Partial<WakeWordConfig>) => {
+    const newConfig = { ...wakeWordConfig, ...updates };
+    setWakeWordConfig(newConfig);
+    saveWakeWordConfig(newConfig);
   };
 
   const saveProxyConfig = async () => {
@@ -354,6 +397,7 @@ function App() {
       console.error('Failed to init session:', err);
     });
     loadTTSConfig();
+    loadWakeWordConfig();
   }, []);
 
   useEffect(() => {
@@ -377,6 +421,14 @@ function App() {
       ttsPlayerRef.current.updateConfig(ttsConfig);
     }
   }, [ttsConfig]);
+
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
+
+  useEffect(() => {
+    isUploadingRef.current = isUploading;
+  }, [isUploading]);
 
   useEffect(() => {
     if (activeSessionId) {
@@ -486,9 +538,12 @@ function App() {
     setEditingPrompt('');
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading || isUploading) return;
+  const sendMessage = useCallback(async (rawInput: string) => {
+    const messageText = rawInput.trim();
+    if (!messageText || isLoadingRef.current || isUploadingRef.current) {
+      return;
+    }
+
     let currentUserId = userId;
     if (!currentUserId) {
       const initState = await initSessionState();
@@ -506,11 +561,11 @@ function App() {
     const userMessage: Message = {
       id: uuidv4(),
       role: 'user',
-      content: input.trim(),
+      content: messageText,
       blocks: [
         {
           type: 'content',
-          content: input.trim(),
+          content: messageText,
         },
       ],
     };
@@ -741,7 +796,44 @@ function App() {
       setAttachments([]);
       setUploadError('');
     }
+  }, [
+    activeSessionId,
+    apiUrl,
+    attachments,
+    createSession,
+    initSessionState,
+    model,
+    ttsConfig,
+    updateSessionMessages,
+    userId,
+  ]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await sendMessage(input);
   };
+
+  const { wakeWordState, lastWakeWord, error: wakeWordError } = useWakeWord({
+    apiUrl,
+    config: wakeWordConfig,
+    onWakeWordDetected: () => {
+      if (wakeWordConfig.bargeIn && ttsPlayerRef.current) {
+        ttsPlayerRef.current.clear();
+      }
+    },
+    onCommandDetected: (commandText) => {
+      if (isLoadingRef.current || isUploadingRef.current) {
+        return;
+      }
+      setInput(commandText);
+      sendMessage(commandText).catch((err) => {
+        console.error('Wake word send failed:', err);
+      });
+    },
+    onError: (message) => {
+      console.error('Wake word listener error:', message);
+    },
+  });
 
   const uploadFile = async (file: File): Promise<ChatAttachment | null> => {
     const formData = new FormData();
@@ -959,15 +1051,11 @@ function App() {
                     onTranscriptUpdate={(text) => setInput(text)}
                     onAutoSend={(text) => {
                       setInput(text);
-                      // 延迟一下让状态更新，然后自动提交
-                      setTimeout(() => {
-                        const form = document.querySelector('form');
-                        if (form) {
-                          form.requestSubmit();
-                        }
-                      }, 100);
+                      sendMessage(text).catch((err) => {
+                        console.error('Voice auto send failed:', err);
+                      });
                     }}
-                    disabled={isLoading || isUploading}
+                    disabled={isLoading || isUploading || wakeWordConfig.enabled}
                   />
                 </div>
 
@@ -1007,6 +1095,13 @@ function App() {
                 </button>
               </div>
             </div>
+            {wakeWordConfig.enabled && (
+              <div className="text-xs text-[#7b6a57]">
+                唤醒监听: {wakeWordState}
+                {lastWakeWord ? ` | 最近唤醒词: ${lastWakeWord}` : ''}
+                {wakeWordError ? ` | 错误: ${wakeWordError}` : ''}
+              </div>
+            )}
           </form>
         </footer>
       </main>
@@ -1120,6 +1215,8 @@ function App() {
         onSaveProxy={saveProxyConfig}
         ttsConfig={ttsConfig}
         onTTSConfigChange={handleTTSConfigChange}
+        wakeWordConfig={wakeWordConfig}
+        onWakeWordConfigChange={handleWakeWordConfigChange}
         apiUrl={apiUrl}
         userId={userId}
         memories={memories}

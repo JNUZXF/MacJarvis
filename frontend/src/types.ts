@@ -71,3 +71,12 @@ export interface TTSModel {
   name: string;
   description: string;
 }
+
+export interface WakeWordConfig {
+  enabled: boolean;
+  keywords: string[];
+  commandTimeoutMs: number;
+  cooldownMs: number;
+  bargeIn: boolean;
+  stripWakeWord: boolean;
+}

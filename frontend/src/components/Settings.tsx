@@ -7,7 +7,7 @@ import { X, Plus } from 'lucide-react';
 import styles from './Settings.module.css';
 import clsx from 'clsx';
 import { TTSSettings } from './TTSSettings';
-import type { TTSConfig } from '../types';
+import type { TTSConfig, WakeWordConfig } from '../types';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -26,6 +26,8 @@ interface SettingsProps {
   onSaveProxy: () => void;
   ttsConfig: TTSConfig;
   onTTSConfigChange: (config: Partial<TTSConfig>) => void;
+  wakeWordConfig: WakeWordConfig;
+  onWakeWordConfigChange: (config: Partial<WakeWordConfig>) => void;
   apiUrl: string;
   userId: string;
   onClearAllSessions: () => void;
@@ -57,6 +59,8 @@ export const Settings: React.FC<SettingsProps> = ({
   onSaveProxy,
   ttsConfig,
   onTTSConfigChange,
+  wakeWordConfig,
+  onWakeWordConfigChange,
   apiUrl,
   userId,
   onClearAllSessions,
@@ -283,6 +287,102 @@ export const Settings: React.FC<SettingsProps> = ({
               apiUrl={apiUrl}
               onConfigChange={onTTSConfigChange}
             />
+          </div>
+
+          {/* 语音唤醒设置 */}
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>
+              <span className={styles.sectionTitleIndicator}></span>
+              语音唤醒
+            </h3>
+            <div className="space-y-4">
+              <label className={styles.switchLabel}>
+                <input
+                  type="checkbox"
+                  checked={wakeWordConfig.enabled}
+                  onChange={(e) => onWakeWordConfigChange({ enabled: e.target.checked })}
+                  className={styles.switchInput}
+                />
+                <span className={styles.switchSlider}></span>
+                <span className={styles.switchText}>开启唤醒词监听</span>
+              </label>
+
+              <div>
+                <label className={styles.label}>唤醒词（英文逗号分隔）</label>
+                <input
+                  type="text"
+                  value={wakeWordConfig.keywords.join(',')}
+                  onChange={(e) =>
+                    onWakeWordConfigChange({
+                      keywords: e.target.value
+                        .split(',')
+                        .map((item) => item.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder="霏霏,小助理"
+                  className={styles.input}
+                />
+              </div>
+
+              <div>
+                <label className={styles.label}>命令等待时长（毫秒）</label>
+                <input
+                  type="number"
+                  min={1000}
+                  step={500}
+                  value={wakeWordConfig.commandTimeoutMs}
+                  onChange={(e) =>
+                    onWakeWordConfigChange({
+                      commandTimeoutMs: Math.max(1000, Number(e.target.value) || 6000),
+                    })
+                  }
+                  className={styles.input}
+                />
+              </div>
+
+              <div>
+                <label className={styles.label}>触发后冷却时长（毫秒）</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={200}
+                  value={wakeWordConfig.cooldownMs}
+                  onChange={(e) =>
+                    onWakeWordConfigChange({
+                      cooldownMs: Math.max(0, Number(e.target.value) || 1500),
+                    })
+                  }
+                  className={styles.input}
+                />
+              </div>
+
+              <label className={styles.switchLabel}>
+                <input
+                  type="checkbox"
+                  checked={wakeWordConfig.stripWakeWord}
+                  onChange={(e) => onWakeWordConfigChange({ stripWakeWord: e.target.checked })}
+                  className={styles.switchInput}
+                />
+                <span className={styles.switchSlider}></span>
+                <span className={styles.switchText}>发送前移除唤醒词</span>
+              </label>
+
+              <label className={styles.switchLabel}>
+                <input
+                  type="checkbox"
+                  checked={wakeWordConfig.bargeIn}
+                  onChange={(e) => onWakeWordConfigChange({ bargeIn: e.target.checked })}
+                  className={styles.switchInput}
+                />
+                <span className={styles.switchSlider}></span>
+                <span className={styles.switchText}>唤醒时打断 TTS 播放</span>
+              </label>
+
+              <p className={clsx(styles.infoBox, styles.infoBoxBlue)}>
+                🎙️ <strong>MVP说明：</strong>当前版本通过现有流式识别文本匹配唤醒词，命中后自动发送给智能体并沿用现有系统提示词与语音回复流程。
+              </p>
+            </div>
           </div>
 
           {/* 记忆管理 */}
